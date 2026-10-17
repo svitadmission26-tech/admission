@@ -133,6 +133,42 @@ async function validateStaffAssignment(roleCode, departmentId, facultyId, res) {
 	return true;
 }
 
+async function validateStaffScope(scopeAll, collegeIds, departmentIds, courseIds, res) {
+	if (
+		typeof scopeAll !== 'boolean' ||
+		![collegeIds, departmentIds, courseIds].every(
+			ids => Array.isArray(ids) && ids.every(isUuid),
+		)
+	) {
+		res.status(400).json({ error: 'Choose a valid data scope for this staff user.' });
+		return false;
+	}
+	const idsByTable = [
+		['colleges', [...new Set(collegeIds)]],
+		['departments', [...new Set(departmentIds)]],
+		['courses', [...new Set(courseIds)]],
+	];
+	if (!scopeAll && idsByTable.every(([, ids]) => ids.length === 0)) {
+		res.status(400).json({
+			error: 'Select at least one college, department, or course, or explicitly grant all-data scope.',
+		});
+		return false;
+	}
+	for (const [table, ids] of idsByTable) {
+		if (!ids.length) continue;
+		const { data, error } = await adminClient.from(table).select('id').in('id', ids);
+		if (error) {
+			res.status(500).json({ error: error.message });
+			return false;
+		}
+		if ((data ?? []).length !== ids.length) {
+			res.status(400).json({ error: `One or more selected ${table} are unavailable.` });
+			return false;
+		}
+	}
+	return true;
+}
+
 app.post('/api/admin/users', requireAdmin, async (req, res) => {
 	const {
 		email,
@@ -140,6 +176,10 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
 		role_code: roleCode,
 		department_id: departmentId,
 		faculty_id: facultyId,
+		scope_all: scopeAll,
+		college_scope_ids: collegeScopeIds,
+		department_scope_ids: departmentScopeIds,
+		course_scope_ids: courseScopeIds,
 	} = req.body || {};
 	if (
 		typeof email !== 'string' ||
@@ -152,6 +192,7 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
 
 	try {
 		if (!(await validateStaffAssignment(roleCode, departmentId, facultyId, res))) return;
+		if (!(await validateStaffScope(scopeAll, collegeScopeIds, departmentScopeIds, courseScopeIds, res))) return;
 		const { data: invite, error: inviteError } =
 			await adminClient.auth.admin.inviteUserByEmail(email.trim(), {
 				data: { full_name: fullName.trim() },
@@ -173,6 +214,10 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
 					role_code: roleCode,
 					department_id: departmentId || null,
 					faculty_id: roleCode === 'faculty' ? facultyId : null,
+					scope_all: scopeAll,
+					college_scope_ids: [...new Set(collegeScopeIds)],
+					department_scope_ids: [...new Set(departmentScopeIds)],
+					course_scope_ids: [...new Set(courseScopeIds)],
 				});
 		if (profileError || memberError) {
 			const { error: cleanupError } = await adminClient.auth.admin.deleteUser(userId);
@@ -191,8 +236,12 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
 			entity_id: userId,
 		});
 		if (auditError) {
-			return res.status(500).json({
-				error: `Invitation and staff record were created, but audit logging failed: ${auditError.message}`,
+			console.error('Staff invitation audit logging failed:', auditError);
+			return res.status(201).json({
+				id: userId,
+				email: invite.user.email,
+				role_code: roleCode,
+				warning: `The invitation and staff record were created, but audit logging failed: ${auditError.message}`,
 			});
 		}
 		return res.status(201).json({
@@ -213,6 +262,10 @@ app.patch('/api/admin/users/:id', requireAdmin, async (req, res) => {
 		department_id: departmentId,
 		faculty_id: facultyId,
 		active,
+		scope_all: scopeAll,
+		college_scope_ids: collegeScopeIds,
+		department_scope_ids: departmentScopeIds,
+		course_scope_ids: courseScopeIds,
 	} = req.body || {};
 	if (!isUuid(userId))
 		return res.status(400).json({ error: 'User ID must be a valid UUID.' });
@@ -221,6 +274,7 @@ app.patch('/api/admin/users/:id', requireAdmin, async (req, res) => {
 
 	try {
 		if (!(await validateStaffAssignment(roleCode, departmentId, facultyId, res))) return;
+		if (!(await validateStaffScope(scopeAll, collegeScopeIds, departmentScopeIds, courseScopeIds, res))) return;
 		const { data: updated, error: updateError } = await adminClient
 			.from('staff_members')
 			.update({
@@ -228,6 +282,10 @@ app.patch('/api/admin/users/:id', requireAdmin, async (req, res) => {
 				department_id: departmentId || null,
 				faculty_id: roleCode === 'faculty' ? facultyId : null,
 				active,
+				scope_all: scopeAll,
+				college_scope_ids: [...new Set(collegeScopeIds)],
+				department_scope_ids: [...new Set(departmentScopeIds)],
+				course_scope_ids: [...new Set(courseScopeIds)],
 			})
 			.eq('user_id', userId)
 			.select('user_id')

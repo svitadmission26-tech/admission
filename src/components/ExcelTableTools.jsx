@@ -6,14 +6,37 @@ import { isUuid, isUuidField } from '../lib/validation';
 const numericColumns = new Set([
 	'amount_paise',
 	'intake',
+	'intake_capacity',
+	'duration_years',
+	'display_order',
 	'score',
 	'rank',
 	'sanctioned_seats',
 ]);
-const booleanColumns = new Set(['active', 'published']);
-const jsonColumns = new Set(['fields', 'formula']);
+const booleanColumns = new Set([
+	'active',
+	'published',
+	'required',
+	'force_uppercase',
+]);
+const jsonColumns = new Set(['fields', 'formula', 'components']);
 
-function convertImportRows(rows, columns) {
+function referenceMatches(value, references, matchColumns) {
+	const normalizedValue = String(value).trim().toLowerCase();
+	const matches = references.filter((reference) =>
+		matchColumns.some(
+			(column) =>
+				reference[column] != null &&
+				String(reference[column]).trim().toLowerCase() === normalizedValue,
+		),
+	);
+	if (matches.length === 1) return matches[0].id;
+	if (matches.length > 1)
+		throw new Error(`"${value}" matches more than one reference record.`);
+	throw new Error(`"${value}" does not match an existing record.`);
+}
+
+function convertImportRows(rows, columns, referenceColumns, referenceOptions) {
 	return rows.map((row, rowIndex) => {
 		const converted = {};
 		for (const { key } of columns) {
@@ -51,11 +74,26 @@ function convertImportRows(rows, columns) {
 				continue;
 			}
 			if (isUuidField(key)) {
-				if (!isUuid(value))
+				if (isUuid(value)) {
+					converted[key] = String(value).trim();
+					continue;
+				}
+				const reference = referenceColumns[key];
+				if (!reference)
 					throw new Error(
 						`Row ${rowIndex + 2}: "${key}" must be a valid UUID.`,
 					);
-				converted[key] = String(value).trim();
+				try {
+					converted[key] = referenceMatches(
+						value,
+						referenceOptions[key] ?? [],
+						reference.matchColumns,
+					);
+				} catch (error) {
+					throw new Error(
+						`Row ${rowIndex + 2}: "${key}" ${error instanceof Error ? error.message : 'could not be matched.'}`,
+					);
+				}
 				continue;
 			}
 			converted[key] = value;
@@ -69,6 +107,7 @@ export default function ExcelTableTools({
 	page,
 	fields,
 	allowImport = false,
+	referenceColumns = {},
 }) {
 	const fileInput = useRef(null);
 	const [busy, setBusy] = useState(false);
@@ -123,7 +162,7 @@ export default function ExcelTableTools({
 				instructions: [
 					`This template creates new ${page.toLowerCase()} records; it does not update or delete existing records.`,
 					'Boolean values: Yes/No. JSON columns must contain valid JSON.',
-					'UUID reference fields must contain IDs that already exist in this project.',
+					'Reference fields accept an existing UUID, or an exact existing record name/code when supported.',
 				],
 			});
 		} catch (error) {
@@ -141,7 +180,28 @@ export default function ExcelTableTools({
 		setMessage('');
 		try {
 			const rows = await readExcelRows(file, columns);
-			const records = convertImportRows(rows, columns);
+			const referenceOptions = {};
+			for (const [key, reference] of Object.entries(referenceColumns)) {
+				if (!columns.some((column) => column.key === key)) continue;
+				const selectColumns = [
+					'id',
+					...new Set(reference.matchColumns),
+				].join(',');
+				const { data, error } = await supabase
+					.from(reference.table)
+					.select(selectColumns);
+				if (error)
+					throw new Error(
+						`Could not load ${reference.table} reference records: ${error.message}`,
+					);
+				referenceOptions[key] = data ?? [];
+			}
+			const records = convertImportRows(
+				rows,
+				columns,
+				referenceColumns,
+				referenceOptions,
+			);
 			let imported = 0;
 			for (let offset = 0; offset < records.length; offset += 100) {
 				const batch = records.slice(offset, offset + 100);

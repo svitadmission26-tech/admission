@@ -1,0 +1,402 @@
+.inquiry-form-builder {
+	display: grid;
+	gap: 20px;
+}
+.inquiry-builder-grid {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(245px, 310px);
+	gap: 18px;
+	align-items: start;
+}
+.inquiry-create-form,
+.inquiry-existing-forms,
+.inquiry-preview {
+	min-width: 0;
+	background: #fff;
+	border: 1px solid #e0e7ef;
+	border-radius: 9px;
+	box-shadow: 0 2px 9px #163a6010;
+	overflow: hidden;
+}
+.inquiry-create-form > h2,
+.inquiry-existing-forms > h2 {
+	margin: 0;
+	padding: 12px 16px;
+	color: #fff;
+	background: #1769d2;
+	font-size: 15px;
+	font-weight: 500;
+}
+.inquiry-create-form {
+	padding-bottom: 17px;
+}
+.inquiry-create-form > h2 {
+	margin-bottom: 15px;
+}
+.inquiry-form-meta {
+	display: grid;
+	grid-template-columns: minmax(0, 1.3fr) minmax(150px, 1fr) minmax(150px, 1fr);
+	gap: 12px;
+	padding: 0 16px;
+}
+.inquiry-form-meta label,
+.inquiry-create-form > label:not(.inquiry-active-toggle),
+.inquiry-form-layout aside > label {
+	display: grid;
+	gap: 7px;
+	align-content: start;
+	color: #263b52;
+	font-size: 11px;
+	font-weight: 700;
+}
+.inquiry-form-meta input,
+.inquiry-form-meta select,
+.inquiry-create-form textarea,
+.inquiry-form-layout select,
+.inquiry-fields-head input,
+.inquiry-field-modal input:not([type='checkbox']),
+.inquiry-field-modal select,
+.inquiry-field-modal textarea {
+	min-width: 0;
+	padding: 9px 10px;
+	border-radius: 6px;
+}
+.inquiry-slug-input {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	border: 1px solid #d7e0ea;
+	border-radius: 6px;
+	color: #718196;
+	font-size: 11px;
+}
+.inquiry-slug-input > span {
+	padding: 0 0 0 8px;
+	white-space: nowrap;
+}
+.inquiry-slug-input input {
+	border: 0;
+}
+.inquiry-active-toggle {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 13px 16px 0;
+	color: #384e66;
+	font-size: 11px;
+}
+.inquiry-active-toggle input,
+.inquiry-link-profile input,
+.inquiry-field-checkbox input,
+.inquiry-field-options input[type='checkbox'] {
+	width: auto;
+	margin: 0;
+	accent-color: #1769d2;
+}
+.inquiry-create-form > .inquiry-description {
+	margin: 15px 16px 0;
+}
+.inquiry-form-structure {
+	margin: 17px 16px 0;
+	padding-top: 13px;
+	border-top: 1px solid #e5eaf0;
+}
+.inquiry-form-structure > h3 {
+	margin: 0 0 12px;
+	font-size: 14px;
+	font-weight: 500;
+}
+.inquiry-form-layout {
+	display: grid;
+	grid-template-columns: minmax(145px, 185px) minmax(0, 1fr);
+	gap: 14px;
+	border: 1px solid #e3e8ee;
+	border-radius: 7px;
+}
+.inquiry-form-layout > aside {
+	width: auto;
+	padding: 11px;
+	color: #263b52;
+	background: #fbfcfd;
+	border-right: 1px solid #e3e8ee;
+}
+.inquiry-form-layout aside > label {
+	font-weight: 500;
+}
+.inquiry-sections-head,
+.inquiry-fields-head,
+.inquiry-section-nav,
+.inquiry-field-list article,
+.inquiry-builder-actions,
+.inquiry-modal-actions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+.inquiry-sections-head {
+	margin: 14px 0 7px;
+	font-size: 12px;
+}
+.inquiry-sections-head button,
+.inquiry-section-nav button,
+.inquiry-field-list button,
+.inquiry-existing-actions button {
+	padding: 6px 8px;
+	font-size: 11px;
+}
+.inquiry-section-nav {
+	margin-top: 4px;
+}
+.inquiry-section-nav button:first-child {
+	flex: 1;
+	text-align: left;
+}
+.inquiry-section-nav button.active {
+	color: #155cae;
+	background: #e9f2ff;
+	border-color: #b7d3f4;
+}
+.inquiry-section-fields {
+	min-width: 0;
+	padding: 11px;
+}
+.inquiry-fields-head > div {
+	display: grid;
+	gap: 5px;
+	min-width: 0;
+}
+.inquiry-fields-head > div input {
+	padding: 7px 8px;
+	font-weight: 600;
+}
+.inquiry-fields-head small,
+.inquiry-field-list small {
+	color: #75869b;
+	font-size: 10px;
+}
+.inquiry-field-list {
+	display: grid;
+	gap: 7px;
+	margin-top: 11px;
+}
+.inquiry-field-list article {
+	padding: 9px;
+	border: 1px solid #e7ebf0;
+	border-radius: 6px;
+}
+.inquiry-field-list article > div:first-child {
+	display: grid;
+	gap: 5px;
+}
+.inquiry-field-list article > div:last-child {
+	display: flex;
+	gap: 5px;
+}
+.inquiry-empty-fields,
+.inquiry-empty-forms {
+	padding: 20px 10px;
+	color: #7b8ba0;
+	font-size: 12px;
+	text-align: center;
+}
+.inquiry-builder-actions {
+	justify-content: flex-end;
+	margin: 16px 16px 0;
+}
+.inquiry-existing-forms {
+	padding-bottom: 12px;
+}
+.inquiry-existing-forms > h2 {
+	background: #20252b;
+}
+.inquiry-existing-forms > article {
+	position: relative;
+	display: grid;
+	gap: 9px;
+	margin: 12px;
+	padding: 14px;
+	border: 1px solid #e2e8ef;
+	border-radius: 7px;
+	font-size: 12px;
+}
+.inquiry-existing-forms > article > small {
+	color: #718196;
+	font-size: 10px;
+}
+.inquiry-existing-actions {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	display: flex;
+	gap: 4px;
+}
+.inquiry-active-pill,
+.inquiry-inactive-pill {
+	width: fit-content;
+	padding: 4px 8px;
+	border-radius: 14px;
+	color: #117444;
+	background: #e0f4e9;
+	font-size: 10px;
+}
+.inquiry-inactive-pill {
+	color: #765a20;
+	background: #fff3d8;
+}
+.inquiry-new-form {
+	display: block;
+	margin: 12px;
+}
+.inquiry-builder-message {
+	padding: 11px 14px;
+	border-radius: 8px;
+	background: #eaf3ff;
+	color: #28547f;
+	font-size: 13px;
+}
+.inquiry-builder-message button {
+	float: right;
+	padding: 0 5px;
+}
+.inquiry-modal-backdrop {
+	position: fixed;
+	z-index: 1000;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	padding: 20px;
+	background: #10182080;
+}
+.inquiry-field-modal {
+	display: grid;
+	gap: 13px;
+	width: min(600px, 100%);
+	max-height: min(90vh, 900px);
+	overflow: auto;
+	padding: 20px;
+	background: white;
+	border-radius: 10px;
+	box-shadow: 0 18px 60px #0003;
+}
+.inquiry-modal-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+.inquiry-modal-head h2 {
+	margin: 0;
+	font-size: 18px;
+}
+.inquiry-modal-head button {
+	padding: 4px 9px;
+	font-size: 18px;
+}
+.inquiry-link-profile,
+.inquiry-field-checkbox,
+.inquiry-field-options > label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+}
+.inquiry-field-modal > label:not(.inquiry-link-profile, .inquiry-field-checkbox),
+.inquiry-field-modal-grid > label,
+.inquiry-condition-row > label {
+	display: grid;
+	gap: 6px;
+	font-size: 11px;
+	font-weight: 600;
+}
+.inquiry-field-modal-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 10px;
+}
+.inquiry-field-options {
+	display: grid;
+	gap: 9px;
+	padding: 11px;
+	border: 1px solid #e1e6ec;
+	border-radius: 7px;
+	background: #fafbfc;
+	font-size: 12px;
+}
+.inquiry-condition-row {
+	display: grid;
+	grid-template-columns: 1fr 0.8fr 1fr;
+	gap: 8px;
+}
+.inquiry-modal-actions {
+	justify-content: flex-end;
+}
+.inquiry-preview {
+	padding: 20px;
+}
+.inquiry-preview-section {
+	margin-top: 16px;
+	padding: 14px;
+	border: 1px solid #e3e8ee;
+	border-radius: 8px;
+}
+.inquiry-preview-section h3 {
+	margin: 0 0 13px;
+	font-size: 15px;
+}
+.inquiry-preview-fields {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 13px;
+}
+.inquiry-preview-fields.vertical {
+	grid-template-columns: 1fr;
+}
+.inquiry-preview-fields label {
+	display: grid;
+	gap: 7px;
+	font-size: 11px;
+	font-weight: 600;
+}
+.inquiry-preview-fields .width-half {
+	grid-column: span 1;
+}
+.inquiry-preview-fields .width-third {
+	grid-column: span 1;
+}
+.inquiry-preview-fields .width-full {
+	grid-column: 1 / -1;
+}
+.inquiry-preview-fields input[type='checkbox'] {
+	width: auto;
+}
+@media (max-width: 1000px) {
+	.inquiry-builder-grid {
+		grid-template-columns: 1fr;
+	}
+	.inquiry-existing-forms {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.inquiry-existing-forms > h2,
+	.inquiry-existing-forms > .inquiry-new-form,
+	.inquiry-existing-forms > .inquiry-empty-forms {
+		grid-column: 1 / -1;
+	}
+}
+@media (max-width: 650px) {
+	.inquiry-form-meta,
+	.inquiry-form-layout,
+	.inquiry-field-modal-grid,
+	.inquiry-condition-row,
+	.inquiry-preview-fields,
+	.inquiry-existing-forms {
+		grid-template-columns: 1fr;
+	}
+	.inquiry-form-layout > aside {
+		border-right: 0;
+		border-bottom: 1px solid #e3e8ee;
+	}
+	.inquiry-form-meta {
+		gap: 10px;
+	}
+}

@@ -17,22 +17,26 @@ const emptyIntake = {
 	academic_year: '',
 	course_name: '',
 	branch_name: '',
+	branch_id: '',
+	intake_head: '',
 	sanctioned_seats: '',
 };
 const intakeExcelColumns = [
 	{ key: 'academic_year', label: 'Academic year' },
 	{ key: 'course_name', label: 'Course' },
 	{ key: 'branch_name', label: 'Branch' },
+	{ key: 'intake_head', label: 'Intake heading' },
 	{ key: 'sanctioned_seats', label: 'Sanctioned seats' },
 ];
 
 function messageFor(error) {
 	if (
-		['PGRST205', '42P01'].includes(error?.code) ||
+		['PGRST204', 'PGRST205', '42P01', '42703'].includes(error?.code) ||
 		error?.message?.includes('inquiry_admissions') ||
-		error?.message?.includes('admission_intake')
+		error?.message?.includes('admission_intake') ||
+		error?.message?.includes('admission_quota_transfers')
 	) {
-		return 'Final Admissions tables are missing. Run migrations 005_inquiries.sql, 006_inquiry_admission.sql, and 007_intake_capacity.sql after migrations 001-004 in the Supabase SQL Editor.';
+		return 'Final Admissions schema is missing or outdated. Run migrations 005_inquiries.sql, 006_inquiry_admission.sql, 007_intake_capacity.sql, 017_branch_dynamic_intakes.sql, and 018_intake_quota_report.sql in order in the Supabase SQL Editor.';
 	}
 	return error?.message || 'An unexpected error occurred.';
 }
@@ -50,14 +54,62 @@ export default function InquiryAdmissions({
 }) {
 	const intakeImportRef = useRef(null);
 	const [intakes, setIntakes] = useState([]);
+	const [branches, setBranches] = useState([]);
+	const [transfers, setTransfers] = useState([]);
 	const [intakeForm, setIntakeForm] = useState(emptyIntake);
 	const [inquiryNumber, setInquiryNumber] = useState('');
 	const [record, setRecord] = useState(null);
 	const [rows, setRows] = useState([]);
 	const [filter, setFilter] = useState('all');
+	const [intakeYearFilter, setIntakeYearFilter] = useState('all');
 	const [message, setMessage] = useState('');
 	const [busy, setBusy] = useState(false);
 	const [loading, setLoading] = useState(true);
+	const selectedBranch = branches.find(
+		(branch) => branch.id === intakeForm.branch_id,
+	);
+	const selectedIntakeHead = selectedBranch?.intake_heads?.find(
+		(head) => head.name === intakeForm.intake_head,
+	);
+	const intakeYears = [...new Set(intakes.map((intake) => intake.academic_year))]
+		.filter(Boolean)
+		.sort((a, b) => b.localeCompare(a));
+	const visibleIntakes = intakes.filter(
+		(intake) =>
+			intakeYearFilter === 'all' || intake.academic_year === intakeYearFilter,
+	);
+	const visibleTransfers = transfers.filter(
+		(transfer) =>
+			intakeYearFilter === 'all' || transfer.academic_year === intakeYearFilter,
+	);
+	const branchTotals = new Map();
+	for (const intake of visibleIntakes) {
+		const key = `${intake.academic_year}:${intake.branch_id ?? intake.course_name + ':' + intake.branch_name}`;
+		branchTotals.set(key, {
+			intake: Number(intake.branch_total_intake ?? intake.sanctioned_seats),
+			filled: Number(intake.branch_filled_count ?? intake.admitted_count),
+		});
+	}
+	const intakeSummary = {
+		quotaSeats: visibleIntakes.reduce(
+			(total, intake) => total + Number(intake.sanctioned_seats),
+			0,
+		),
+		filledSeats: visibleIntakes.reduce(
+			(total, intake) => total + Number(intake.admitted_count),
+			0,
+		),
+		cancelledSeats: visibleIntakes.reduce(
+			(total, intake) => total + Number(intake.cancelled_count ?? 0),
+			0,
+		),
+		vacantQuota: visibleIntakes.reduce(
+			(total, intake) => total + Number(intake.available_seats),
+			0,
+		),
+		branchSeats: [...branchTotals.values()].reduce((total, branch) => total + branch.intake, 0),
+		branchFilled: [...branchTotals.values()].reduce((total, branch) => total + branch.filled, 0),
+	};
 
 	async function loadAdmissions() {
 		const { data, error } = await supabase
@@ -86,11 +138,56 @@ export default function InquiryAdmissions({
 		return null;
 	}
 
+	async function loadBranches() {
+		if (!canManageIntakes) return null;
+		const [branchesResult, coursesResult] = await Promise.all([
+			supabase
+				.from('branches')
+				.select('id,name,course_id,intake,intake_heads')
+				.eq('active', true)
+				.order('name'),
+			supabase.from('courses').select('id,name').eq('active', true).order('name'),
+		]);
+		const error = branchesResult.error || coursesResult.error;
+		if (error) {
+			setMessage(messageFor(error));
+			return error.message;
+		}
+		const courses = new Map((coursesResult.data ?? []).map((course) => [course.id, course.name]));
+		setBranches(
+			(branchesResult.data ?? []).map((branch) => ({
+				...branch,
+				course_name: courses.get(branch.course_id) ?? '',
+				intake_heads: Array.isArray(branch.intake_heads) ? branch.intake_heads : [],
+			})),
+		);
+		return null;
+	}
+
+	async function loadTransfers() {
+		const { data, error } = await supabase
+			.from('admission_quota_transfers')
+			.select('*')
+			.order('created_at', { ascending: false })
+			.limit(500);
+		if (error) {
+			setMessage(messageFor(error));
+			return error.message;
+		}
+		setTransfers(data ?? []);
+		return null;
+	}
+
 	async function refresh() {
 		setMessage('');
 		setLoading(true);
 		try {
-			const results = await Promise.all([loadAdmissions(), loadIntakes()]);
+			const results = await Promise.all([
+				loadAdmissions(),
+				loadIntakes(),
+				loadBranches(),
+				loadTransfers(),
+			]);
 			return results.find(Boolean) || null;
 		} catch (error) {
 			const nextMessage = messageFor(error);
@@ -111,10 +208,38 @@ export default function InquiryAdmissions({
 		setBusy(true);
 		setMessage('');
 		try {
+			if (!selectedBranch || !selectedIntakeHead) {
+				throw new Error('Select a branch and one of its configured intake headings.');
+			}
+			const seats = Number(intakeForm.sanctioned_seats);
+			if (
+				!Number.isInteger(seats) ||
+				seats < 0 ||
+				seats > Number(selectedIntakeHead.seats)
+			) {
+				throw new Error(
+					`Enter a whole seat count from zero to ${selectedIntakeHead.seats} for ${selectedIntakeHead.name}.`,
+				);
+			}
+			const otherHeadAllocations = intakes
+				.filter(
+					(intake) =>
+						intake.academic_year === intakeForm.academic_year.trim() &&
+						intake.branch_id === selectedBranch.id,
+				)
+				.reduce((total, intake) => total + Number(intake.sanctioned_seats), 0);
+			if (otherHeadAllocations + seats > Number(selectedBranch.intake)) {
+				throw new Error(
+					`This academic year's intake allocations would exceed the branch total of ${selectedBranch.intake} seats.`,
+				);
+			}
 			const { error } = await supabase.from('admission_intakes').insert({
-				...intakeForm,
-				sanctioned_seats: Number(intakeForm.sanctioned_seats),
-				branch_name: intakeForm.branch_name.trim(),
+				academic_year: intakeForm.academic_year.trim(),
+				course_name: selectedBranch.course_name,
+				branch_name: selectedBranch.name,
+				branch_id: selectedBranch.id,
+				intake_head: selectedIntakeHead.name,
+				sanctioned_seats: seats,
 			});
 			if (error) throw error;
 			setIntakeForm(emptyIntake);
@@ -136,11 +261,17 @@ export default function InquiryAdmissions({
 					{ key: 'academic_year', label: 'Academic year' },
 					{ key: 'course_name', label: 'Course' },
 					{ key: 'branch_name', label: 'Branch' },
+					{ key: 'intake_head', label: 'Intake heading' },
 					{ key: 'sanctioned_seats', label: 'Sanctioned seats' },
 					{ key: 'admitted_count', label: 'Admitted' },
+					{ key: 'cancelled_count', label: 'Cancelled' },
+					{ key: 'transfer_in_count', label: 'Transfer in' },
+					{ key: 'transfer_out_count', label: 'Transfer out' },
 					{ key: 'available_seats', label: 'Available seats' },
+					{ key: 'branch_total_intake', label: 'Branch total intake' },
+					{ key: 'branch_filled_count', label: 'Branch filled' },
 				],
-				rows: intakes,
+				rows: visibleIntakes,
 			});
 		} catch (error) {
 			setMessage(messageFor(error));
@@ -184,7 +315,8 @@ export default function InquiryAdmissions({
 				instructions: [
 					'Import creates new intake rows; it does not update existing seat counts.',
 					'Use a whole number of zero or more for sanctioned seats.',
-					'Academic year, course, and branch must be unique together.',
+					'Every intake heading for a branch and academic year must be unique.',
+					'Configure government intake headings and maximum seats on the Branches screen first.',
 				],
 			});
 		} catch (error) {
@@ -204,15 +336,27 @@ export default function InquiryAdmissions({
 				const academicYear = String(row.academic_year ?? '').trim();
 				const courseName = String(row.course_name ?? '').trim();
 				const branchName = String(row.branch_name ?? '').trim();
+				const intakeHead = String(row.intake_head ?? 'General').trim();
 				const seats = Number(row.sanctioned_seats);
-				if (!academicYear || !courseName || !branchName || !Number.isInteger(seats) || seats < 0)
+				if (!academicYear || !courseName || !branchName || !intakeHead || !Number.isInteger(seats) || seats < 0)
 					throw new Error(
-						`Row ${index + 2}: academic year, course, branch, and a whole sanctioned-seat count of zero or more are required.`,
+						`Row ${index + 2}: academic year, course, branch, intake heading, and a whole sanctioned-seat count of zero or more are required.`,
+					);
+				const branch = branches.find(
+					(item) =>
+						item.name.toLowerCase() === branchName.toLowerCase() &&
+						item.course_name.toLowerCase() === courseName.toLowerCase(),
+				);
+				if (!branch)
+					throw new Error(
+						`Row ${index + 2}: branch "${branchName}" for course "${courseName}" was not found in Branches.`,
 					);
 				return {
 					academic_year: academicYear,
 					course_name: courseName,
 					branch_name: branchName,
+					branch_id: branch.id,
+					intake_head: intakeHead,
 					sanctioned_seats: seats,
 				};
 			});
@@ -277,7 +421,7 @@ export default function InquiryAdmissions({
 			if (error) throw error;
 			setRecord(data);
 			setMessage(`Admission decision saved: ${data.admission_number}`);
-			await Promise.all([loadAdmissions(), loadIntakes()]);
+			await Promise.all([loadAdmissions(), loadIntakes(), loadTransfers()]);
 		} catch (error) {
 			setMessage(messageFor(error));
 		} finally {
@@ -320,7 +464,35 @@ export default function InquiryAdmissions({
 	return (
 		<div>
 			<section className="panel">
-				<h2>Intake &amp; Seat Availability</h2>
+				<div className="panelhead intake-report-head">
+					<div>
+						<h2>Quota Intake &amp; Seat Report</h2>
+						<p>Quota allocations, filled/cancelled seats, transfer history, and vacancies.</p>
+					</div>
+					<select
+						aria-label="Filter quota report by academic year"
+						value={intakeYearFilter}
+						onChange={(event) => setIntakeYearFilter(event.target.value)}
+					>
+						<option value="all">All academic years</option>
+						{intakeYears.map((year) => <option key={year} value={year}>{year}</option>)}
+					</select>
+				</div>
+				<div className="inquiry-kpis intake-report-kpis">
+					{[
+						['Branch total intake', intakeSummary.branchSeats],
+						['Quota seats', intakeSummary.quotaSeats],
+						['Filled seats', intakeSummary.filledSeats],
+						['Cancelled', intakeSummary.cancelledSeats],
+						['Vacant quota seats', intakeSummary.vacantQuota],
+						['Branch filled / total', `${intakeSummary.branchFilled} / ${intakeSummary.branchSeats}`],
+					].map(([label, value]) => (
+						<div className="inquiry-kpi" key={label}>
+							<small>{label}</small>
+							<strong>{value}</strong>
+						</div>
+					))}
+				</div>
 				<div className="excel-tools">
 					<button type="button" onClick={() => void exportIntakes()}>
 						Export seat summary
@@ -355,33 +527,81 @@ export default function InquiryAdmissions({
 								<th>Year</th>
 								<th>Course</th>
 								<th>Branch</th>
-								<th>Intake</th>
-								<th>Admitted</th>
-								<th>Available</th>
+								<th>Intake heading</th>
+								<th>Quota intake</th>
+								<th>Filled</th>
+								<th>Cancelled</th>
+								<th>Transfer in</th>
+								<th>Transfer out</th>
+								<th>Vacant quota</th>
+								<th>Branch filled / total</th>
+								<th>Branch vacant</th>
 							</tr>
 						</thead>
 						<tbody>
-							{intakes.map((intake) => (
+							{visibleIntakes.map((intake) => (
 								<tr key={intake.id}>
 									<td>{intake.academic_year}</td>
 									<td>{intake.course_name}</td>
 									<td>{intake.branch_name || '—'}</td>
+									<td>{intake.intake_head || 'General'}</td>
 									<td>{intake.sanctioned_seats}</td>
 									<td>{intake.admitted_count}</td>
-									<td>
-										<b>{intake.available_seats}</b>
-									</td>
+									<td>{intake.cancelled_count ?? 0}</td>
+									<td>{intake.transfer_in_count ?? 0}</td>
+									<td>{intake.transfer_out_count ?? 0}</td>
+									<td><b>{intake.available_seats}</b></td>
+									<td>{intake.branch_filled_count ?? intake.admitted_count} / {intake.branch_total_intake ?? intake.sanctioned_seats}</td>
+									<td>{Math.max(0, Number(intake.branch_total_intake ?? intake.sanctioned_seats) - Number(intake.branch_filled_count ?? intake.admitted_count))}</td>
 								</tr>
 							))}
 						</tbody>
 					</table>
-					{!loading && !intakes.length && (
-						<div className="empty">No admission intakes created.</div>
+					{!loading && !visibleIntakes.length && (
+						<div className="empty">No intake quota rows for this academic year.</div>
+					)}
+				</div>
+				<h3>Quota transfer history</h3>
+				<div className="tablewrap">
+					<table>
+						<thead>
+							<tr>
+								<th>Date</th>
+								<th>Admission</th>
+								<th>Student</th>
+								<th>Academic year</th>
+								<th>From</th>
+								<th>To</th>
+								<th>Reason</th>
+							</tr>
+						</thead>
+						<tbody>
+							{visibleTransfers.map((transfer) => (
+								<tr key={transfer.id}>
+									<td>{new Date(transfer.created_at).toLocaleString()}</td>
+									<td>{transfer.admission_number}</td>
+									<td>{transfer.student_name}</td>
+									<td>{transfer.academic_year}</td>
+									<td>
+										{transfer.source_course} · {transfer.source_branch || '—'} ·{' '}
+										{transfer.source_quota || 'General'}
+									</td>
+									<td>
+										{transfer.destination_course} · {transfer.destination_branch || '—'} ·{' '}
+										{transfer.destination_quota || 'General'}
+									</td>
+									<td>{transfer.note || '—'}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+					{!loading && !visibleTransfers.length && (
+						<div className="empty">No quota transfers for this academic year.</div>
 					)}
 				</div>
 				{canManageIntakes && (
 					<form className="editgrid" onSubmit={createIntake}>
-						<h3>Create admission intake</h3>
+						<h3>Create academic-year quota allocation</h3>
 						<label>
 							Academic year
 							<input
@@ -397,36 +617,63 @@ export default function InquiryAdmissions({
 							/>
 						</label>
 						<label>
-							Course
-							<input
+							Course / Branch
+							<select
 								required
-								value={intakeForm.course_name}
-								onChange={(event) =>
+								value={intakeForm.branch_id}
+								onChange={(event) => {
+									const branch = branches.find((item) => item.id === event.target.value);
+									const firstHead = branch?.intake_heads?.[0];
 									setIntakeForm({
 										...intakeForm,
-										course_name: event.target.value,
-									})
-								}
-							/>
+										branch_id: branch?.id || '',
+										course_name: branch?.course_name || '',
+										branch_name: branch?.name || '',
+										intake_head: firstHead?.name || '',
+										sanctioned_seats: firstHead?.seats ?? '',
+									});
+								}}
+							>
+								<option value="">Select course and branch</option>
+								{branches.map((branch) => (
+									<option key={branch.id} value={branch.id}>
+										{branch.course_name} · {branch.name} · {branch.intake} total seats
+									</option>
+								))}
+							</select>
 						</label>
 						<label>
-							Branch (optional)
-							<input
-								value={intakeForm.branch_name}
-								onChange={(event) =>
+							Government intake heading
+							<select
+								required
+								disabled={!selectedBranch}
+								value={intakeForm.intake_head}
+								onChange={(event) => {
+									const head = selectedBranch?.intake_heads.find(
+										(item) => item.name === event.target.value,
+									);
 									setIntakeForm({
 										...intakeForm,
-										branch_name: event.target.value,
-									})
-								}
-							/>
+										intake_head: event.target.value,
+										sanctioned_seats: head?.seats ?? '',
+									});
+								}}
+							>
+								<option value="">Select intake heading</option>
+								{(selectedBranch?.intake_heads ?? []).map((head) => (
+									<option key={head.name} value={head.name}>
+										{head.name} · up to {head.seats} seats
+									</option>
+								))}
+							</select>
 						</label>
 						<label>
-							Sanctioned seats
+							Seats for this academic year
 							<input
 								required
 								type="number"
 								min="0"
+								max={selectedIntakeHead?.seats}
 								step="1"
 								value={intakeForm.sanctioned_seats}
 								onChange={(event) =>
@@ -436,6 +683,12 @@ export default function InquiryAdmissions({
 									})
 								}
 							/>
+							<small>
+								Branch total: {selectedBranch?.intake ?? '—'} seats
+								{selectedIntakeHead
+									? ` · ${selectedIntakeHead.name} limit: ${selectedIntakeHead.seats}`
+									: ''}
+							</small>
 						</label>
 						<div className="actions">
 							<button className="primary" disabled={busy}>
@@ -489,9 +742,9 @@ export default function InquiryAdmissions({
 							</label>
 						))}
 						<label>
-							Academic year / course / branch intake
+							Academic year / course / branch / quota transfer
 							<select
-								disabled={!canDecide || record.decision === 'admitted'}
+								disabled={!canDecide || record.decision === 'cancelled'}
 								value={record.intake_id || ''}
 								onChange={(event) => {
 									const intake = intakes.find(
@@ -511,13 +764,26 @@ export default function InquiryAdmissions({
 							>
 								<option value="">Select intake</option>
 								{intakes.map((intake) => (
-									<option key={intake.id} value={intake.id}>
+									<option
+										key={intake.id}
+										value={intake.id}
+										disabled={
+											Number(intake.available_seats) <= 0 &&
+											intake.id !== record.intake_id
+										}
+									>
 										{intake.academic_year} · {intake.course_name} ·{' '}
-										{intake.branch_name || 'General'} · {intake.available_seats}{' '}
+										{intake.branch_name || 'General'} · {intake.intake_head || 'General'} · {intake.available_seats}{' '}
 										seats available
 									</option>
 								))}
 							</select>
+							{record.decision === 'admitted' && (
+								<small>
+									Changing the quota transfers this admitted seat. The report
+									records both the source and destination.
+								</small>
+							)}
 						</label>
 						<label>
 							Final decision

@@ -135,3 +135,384 @@ export async function readExcelRows(file, expectedColumns) {
 	if (!rows.length) throw new Error('The template contains no data rows.');
 	return rows;
 }
+
+const workbookSheetDefinitions = [
+	{
+		name: 'Courses',
+		headerRow: 3,
+		columns: [
+			['Name', 'text', ['ame']],
+			['Code', 'text'],
+			['Enrollment Code', 'text'],
+			['College', 'text'],
+			['Duration (Years)', 'number'],
+			['Intake Capacity', 'number'],
+		],
+	},
+	{
+		name: 'form type',
+		headerRow: 1,
+		columns: [
+			['Name', 'text'],
+			['Code', 'text'],
+			['Flags', 'text'],
+			['Status', 'text'],
+		],
+	},
+	{
+		name: 'Student Profile Schema',
+		headerRow: 20,
+		columns: [
+			['Label', 'text'],
+			['Key', 'text'],
+			['Type', 'text'],
+			['Required', 'boolean'],
+			['Force Upper', 'boolean'],
+		],
+	},
+	{
+		name: 'Manage Admission Forms',
+		headerRow: 9,
+		columns: [
+			['Course', 'text'],
+			['Admission Cycle', 'text'],
+			['Type', 'text'],
+		],
+	},
+	{
+		name: 'branch',
+		headerRow: 1,
+		columns: [
+			['Branch Name', 'text', ['ranch Name']],
+			['Code', 'text'],
+			['Enrollment Code', 'text'],
+			['Course', 'text'],
+			['College', 'text'],
+			['Intake Capacity', 'number'],
+		],
+	},
+	{
+		name: 'college',
+		headerRow: 1,
+		columns: [
+			['Logo', 'text'],
+			['College Name', 'text'],
+			['Code', 'text'],
+			['University', 'text'],
+		],
+	},
+	{
+		name: 'Fee Structure Management',
+		headerRow: 3,
+		columns: [
+			['Course', 'text'],
+			['Academic Year', 'text'],
+			['Form Type', 'text'],
+			['Total Fee', 'text'],
+			['Components', 'number'],
+			['Actions', 'text'],
+		],
+	},
+	{
+		name: 'Manage Fee Schemes',
+		headerRow: 3,
+		columns: [
+			['Name', 'text'],
+			['Description', 'text'],
+			['Status', 'text'],
+		],
+	},
+	{
+		name: 'Merit Formula Management',
+		headerRow: 3,
+		columns: [
+			['Course & Type', 'text'],
+			['Rules (JSON)', 'json'],
+		],
+	},
+];
+
+export function createEmptyAdmissionWorkbook() {
+	return workbookSheetDefinitions.map((definition) => {
+		let columns = definition.columns.map(([label, type]) => ({
+			key: label,
+			label,
+			type,
+		}));
+		if (definition.name === 'Fee Structure Management')
+			columns = [
+				{ key: 'Course', label: 'Course', type: 'text' },
+				{ key: 'Academic Year', label: 'Academic Year', type: 'text' },
+				{ key: 'Form Type', label: 'Form Type', type: 'text' },
+				{ key: 'Fee Scheme', label: 'Fee Scheme', type: 'text' },
+				{ key: 'Total Fee', label: 'Total Fee', type: 'number' },
+				{ key: 'Components', label: 'Components', type: 'text' },
+			];
+		if (definition.name === 'form type')
+			columns.push({ key: 'Description', label: 'Description', type: 'text' });
+		if (definition.name === 'Manage Admission Forms')
+			columns.push({ key: 'Course Code', label: 'Course Code', type: 'text' });
+		return { sheet_name: definition.name, columns, rows: [] };
+	});
+}
+
+export function recalculateWorkbookCourseIntakes(sheets) {
+	const courses = sheets.find((sheet) => sheet.sheet_name === 'Courses');
+	const branches = sheets.find((sheet) => sheet.sheet_name === 'branch');
+	if (!courses || !branches) return sheets;
+
+	const totals = new Map();
+	for (const branch of branches.rows) {
+		const courseName = String(branch.Course ?? '').trim().toLowerCase();
+		const collegeName = String(branch.College ?? '').trim().toLowerCase();
+		const key = `${courseName}\u0000${collegeName}`;
+		const intake = Number(branch['Intake Capacity'] ?? 0);
+		if (!Number.isFinite(intake)) continue;
+		totals.set(key, (totals.get(key) ?? 0) + intake);
+	}
+	courses.rows = courses.rows.map((course) => {
+		const key = `${String(course.Name ?? '').trim().toLowerCase()}\u0000${String(course.College ?? '').trim().toLowerCase()}`;
+		return {
+			...course,
+			'Intake Capacity': totals.get(key) ?? 0,
+		};
+	});
+	return sheets;
+}
+
+function cellText(cell, { ignoreFormula = false, ExcelJS } = {}) {
+	const value = cell.value;
+	if (value === null || value === undefined || value === '') return '';
+	if (
+		cell.type === ExcelJS.ValueType.Formula ||
+		cell.type === ExcelJS.ValueType.Hyperlink
+	) {
+		if (ignoreFormula) return '';
+		throw new Error(`Formulas and hyperlinks are not allowed (${cell.address}).`);
+	}
+	if (value instanceof Date) return value.toISOString().slice(0, 10);
+	if (typeof value === 'object') {
+		if ('error' in value) return '';
+		if ('text' in value) return value.text;
+		if ('richText' in value)
+			return value.richText.map((part) => part.text ?? '').join('');
+		throw new Error(`Unsupported cell value (${cell.address}).`);
+	}
+	return value;
+}
+
+function normalizedHeader(value) {
+	return String(value ?? '')
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '');
+}
+
+function readSheetRows(worksheet, definition, ExcelJS) {
+	const header = worksheet.getRow(definition.headerRow);
+	const positions = new Map();
+	header.eachCell({ includeEmpty: false }, (cell, columnNumber) => {
+		positions.set(normalizedHeader(cellText(cell, { ExcelJS })), columnNumber);
+	});
+	const rows = [];
+
+	for (let rowNumber = definition.headerRow + 1; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+		const worksheetRow = worksheet.getRow(rowNumber);
+		const row = {};
+		let hasValue = false;
+		for (const [label, , aliases = []] of definition.columns) {
+			const candidates = [label, ...aliases].map(normalizedHeader);
+			const columnNumber = candidates
+				.map((candidate) => positions.get(candidate))
+				.find((position) => position !== undefined);
+			if (columnNumber === undefined) {
+				throw new Error(`The "${worksheet.name}" sheet is missing the "${label}" column.`);
+			}
+			const cell = worksheetRow.getCell(columnNumber);
+			const value =
+				worksheet.name === 'college' && label === 'Logo'
+					? cellText(cell, { ignoreFormula: true, ExcelJS })
+					: cellText(cell, { ExcelJS });
+			if (value !== '' && value !== null && value !== undefined) hasValue = true;
+			row[label] = value;
+		}
+		if (hasValue) {
+			row._rowId = `${normalizedHeader(worksheet.name)}-${rowNumber}`;
+			row._row_number = rowNumber;
+			rows.push(row);
+		}
+	}
+	return rows;
+}
+
+function parseMeritRules(worksheet, definition, ExcelJS) {
+	const rows = [];
+	let courseName = '';
+	let formType = '';
+	let ruleLines = [];
+	let rowId = '';
+	const flush = () => {
+		if (!courseName || !formType || !ruleLines.length) return;
+		let rules;
+		try {
+			rules = JSON.parse(ruleLines.join('\n'));
+		} catch {
+			throw new Error(`The merit formula for "${courseName} / ${formType}" is not valid JSON.`);
+		}
+		rows.push({
+			'Course & Type': `${courseName} / ${formType}`,
+			'Rules (JSON)': rules,
+			_rowId: rowId,
+		});
+	};
+
+	for (let rowNumber = definition.headerRow + 1; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+		const first = cellText(worksheet.getRow(rowNumber).getCell(1), { ExcelJS });
+		const second = cellText(worksheet.getRow(rowNumber).getCell(2), { ExcelJS });
+		if (typeof first === 'string' && first.trim() && second === '{') {
+			flush();
+			courseName = first.trim();
+			formType = '';
+			ruleLines = ['{'];
+			rowId = `merit-formula-${rowNumber}`;
+		} else if (typeof first === 'string' && first.trim() && courseName) {
+			formType = first.trim();
+			if (second) ruleLines.push(String(second));
+		} else if (courseName && second) {
+			ruleLines.push(String(second));
+			if (String(second).trim() === '}') {
+				flush();
+				courseName = '';
+				formType = '';
+				ruleLines = [];
+			}
+		}
+	}
+	flush();
+	return rows;
+}
+
+function combineAdmissionCourseCodes(rows, courseRows) {
+	const courseCodes = new Set(
+		courseRows.map((row) => String(row.Code ?? '').trim().toLowerCase()).filter(Boolean),
+	);
+	const combined = [];
+	for (let index = 0; index < rows.length; index += 1) {
+		const row = rows[index];
+		const next = rows[index + 1];
+		if (
+			next &&
+			courseCodes.has(String(next.Course ?? '').trim().toLowerCase()) &&
+			next['Admission Cycle'] === row['Admission Cycle']
+		) {
+			combined.push({
+				...row,
+				'Course Code': next.Course,
+			});
+			index += 1;
+		} else {
+			combined.push(row);
+		}
+	}
+	return combined;
+}
+
+function groupFormTypeDescriptions(rows) {
+	const grouped = [];
+	for (const row of rows) {
+		const name = String(row.Name ?? '').trim();
+		const isType =
+			Boolean(row.Code) ||
+			['ACPC', 'GCAS', 'MQ/NRI', 'PROVISIONAL', 'VACANT'].includes(
+				name.toUpperCase(),
+			);
+		if (isType || !grouped.length) {
+			grouped.push({ ...row, Description: '' });
+			continue;
+		}
+		grouped[grouped.length - 1].Description = name;
+	}
+	return grouped;
+}
+
+function normalizeFeeStructureRows(rows) {
+	return rows.map((row) => {
+		const feeValue = row.Components;
+		const feeScheme = row['Total Fee'];
+		const sections = row.Actions;
+		const totalFee =
+			feeValue === null || feeValue === undefined || feeValue === ''
+				? null
+				: Number(feeValue);
+		if (totalFee !== null && !Number.isFinite(totalFee))
+			throw new Error(`The total fee on row ${row._row_number} must be a number.`);
+		return {
+			Course: row.Course,
+			'Academic Year': row['Academic Year'],
+			'Form Type': row['Form Type'],
+			'Fee Scheme': feeScheme,
+			'Total Fee': totalFee,
+			Components: sections,
+			_rowId: row._rowId,
+			_row_number: row._row_number,
+		};
+	});
+}
+
+export async function readAdmissionWorkbook(file) {
+	const ExcelJS = await loadExcelJs();
+	const workbook = new ExcelJS.Workbook();
+	await workbook.xlsx.load(await file.arrayBuffer());
+	const missing = workbookSheetDefinitions
+		.map(({ name }) => name)
+		.filter((name) => !workbook.getWorksheet(name));
+	if (missing.length) {
+		throw new Error(`Workbook is missing required sheets: ${missing.join(', ')}.`);
+	}
+
+	const sheets = workbookSheetDefinitions.map((definition) => {
+		const worksheet = workbook.getWorksheet(definition.name);
+		const rows =
+			definition.name === 'Merit Formula Management'
+				? parseMeritRules(worksheet, definition, ExcelJS)
+				: readSheetRows(worksheet, definition, ExcelJS);
+		return {
+			sheet_name: definition.name,
+			columns: definition.columns.map(([label, type]) => ({
+				key: label,
+				label,
+				type,
+			})),
+			rows,
+		};
+	});
+
+	const formTypes = sheets.find((sheet) => sheet.sheet_name === 'form type');
+	formTypes.rows = groupFormTypeDescriptions(formTypes.rows);
+	formTypes.columns = [
+		...formTypes.columns,
+		{ key: 'Description', label: 'Description', type: 'text' },
+	];
+	const feeSheet = sheets.find(
+		(sheet) => sheet.sheet_name === 'Fee Structure Management',
+	);
+	feeSheet.rows = normalizeFeeStructureRows(feeSheet.rows);
+	feeSheet.columns = createEmptyAdmissionWorkbook().find(
+		(sheet) => sheet.sheet_name === feeSheet.sheet_name,
+	).columns;
+	const courses = sheets.find((sheet) => sheet.sheet_name === 'Courses').rows;
+	const admissionSheet = sheets.find(
+		(sheet) => sheet.sheet_name === 'Manage Admission Forms',
+	);
+	const originalAdmissionColumns = admissionSheet.columns;
+	admissionSheet.rows = combineAdmissionCourseCodes(admissionSheet.rows, courses);
+	for (const row of admissionSheet.rows) {
+		row.Type = String(row.Type ?? '').replace(/\s+Disabled$/i, '');
+	}
+	if (admissionSheet.rows.some((row) => row['Course Code']))
+		admissionSheet.columns = [
+			...originalAdmissionColumns,
+			{ key: 'Course Code', label: 'Course Code', type: 'text' },
+		];
+	return recalculateWorkbookCourseIntakes(sheets);
+}
