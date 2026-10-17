@@ -1,23 +1,25 @@
 -- Run in Supabase SQL Editor on a NEW development project.
 create extension if not exists pgcrypto;
 
-create table public.profiles (
+create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   full_name text not null default '',
   role text not null default 'student' check (role in ('student', 'admin')),
   created_at timestamptz not null default now()
 );
 
-create function public.new_user_profile () returns trigger language plpgsql security definer
+create or replace function public.new_user_profile () returns trigger language plpgsql security definer
 set
   search_path = public,
   pg_temp as $$begin insert into public.profiles(id,full_name) values(new.id,coalesce(new.raw_user_meta_data->>'full_name','')); return new; end$$;
+
+drop trigger if exists auth_user_profile on auth.users;
 
 create trigger auth_user_profile
 after insert on auth.users for each row
 execute function public.new_user_profile ();
 
-create function public.is_admin () returns boolean language sql stable security definer
+create or replace function public.is_admin () returns boolean language sql stable security definer
 set
   search_path = public,
   pg_temp as $$select exists(select 1 from public.profiles where id=auth.uid() and role='admin')$$;
@@ -29,27 +31,27 @@ from
 grant
 execute on function public.is_admin () to authenticated;
 
-create table public.universities (
+create table if not exists public.universities (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
   active boolean default true
 );
 
-create table public.colleges (
+create table if not exists public.colleges (
   id uuid primary key default gen_random_uuid(),
   university_id uuid references universities (id),
   name text not null,
   active boolean default true
 );
 
-create table public.courses (
+create table if not exists public.courses (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   code text unique,
   active boolean default true
 );
 
-create table public.branches (
+create table if not exists public.branches (
   id uuid primary key default gen_random_uuid(),
   course_id uuid not null references courses (id),
   name text not null,
@@ -57,7 +59,7 @@ create table public.branches (
   active boolean default true
 );
 
-create table public.academic_years (
+create table if not exists public.academic_years (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
   starts_on date,
@@ -65,7 +67,7 @@ create table public.academic_years (
   active boolean default true
 );
 
-create table public.admission_forms (
+create table if not exists public.admission_forms (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   description text default '',
@@ -74,7 +76,7 @@ create table public.admission_forms (
   created_at timestamptz default now()
 );
 
-create table public.applications (
+create table if not exists public.applications (
   id uuid primary key default gen_random_uuid(),
   student_id uuid not null references profiles (id),
   form_id uuid not null references admission_forms (id),
@@ -96,7 +98,7 @@ create table public.applications (
   updated_at timestamptz default now()
 );
 
-create table public.documents (
+create table if not exists public.documents (
   id uuid primary key default gen_random_uuid(),
   application_id uuid not null references applications (id) on delete cascade,
   student_id uuid not null references profiles (id),
@@ -105,14 +107,14 @@ create table public.documents (
   created_at timestamptz default now()
 );
 
-create table public.fee_structures (
+create table if not exists public.fee_structures (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   amount_paise bigint not null check (amount_paise >= 0),
   active boolean default true
 );
 
-create table public.fee_assignments (
+create table if not exists public.fee_assignments (
   id uuid primary key default gen_random_uuid(),
   application_id uuid not null references applications (id),
   fee_structure_id uuid references fee_structures (id),
@@ -120,7 +122,7 @@ create table public.fee_assignments (
   unique (application_id, fee_structure_id)
 );
 
-create table public.payments (
+create table if not exists public.payments (
   id uuid primary key default gen_random_uuid(),
   assignment_id uuid not null references fee_assignments (id),
   amount_paise bigint not null check (amount_paise > 0),
@@ -129,14 +131,14 @@ create table public.payments (
   recorded_at timestamptz default now()
 );
 
-create table public.merit_schemes (
+create table if not exists public.merit_schemes (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   formula jsonb not null default '{}'::jsonb,
   status text default 'draft' check (status in ('draft', 'published'))
 );
 
-create table public.merit_entries (
+create table if not exists public.merit_entries (
   id uuid primary key default gen_random_uuid(),
   scheme_id uuid not null references merit_schemes (id),
   application_id uuid not null references applications (id),
@@ -147,7 +149,7 @@ create table public.merit_entries (
   unique (scheme_id, application_id)
 );
 
-create table public.audit_logs (
+create table if not exists public.audit_logs (
   id bigint generated always as identity primary key,
   actor_id uuid references profiles (id),
   action text not null,
@@ -156,17 +158,19 @@ create table public.audit_logs (
   at timestamptz default now()
 );
 
-create index on applications (student_id);
+create index if not exists applications_student_id_idx on applications (student_id);
 
-create index on applications (status);
+create index if not exists applications_status_idx on applications (status);
 
-create index on documents (student_id);
+create index if not exists documents_student_id_idx on documents (student_id);
 
-create index on fee_assignments (application_id);
+create index if not exists fee_assignments_application_id_idx on fee_assignments (application_id);
 
-create index on merit_entries (application_id);
+create index if not exists merit_entries_application_id_idx on merit_entries (application_id);
 
 alter table profiles enable row level security;
+
+drop policy if exists profiles_read on profiles;
 
 create policy profiles_read on profiles for
 select
@@ -175,6 +179,8 @@ select
     or public.is_admin ()
   );
 
+drop policy if exists profiles_admin_update on profiles;
+
 create policy profiles_admin_update on profiles
 for update
   to authenticated using (public.is_admin ())
@@ -182,11 +188,15 @@ with
   check (public.is_admin ());
 
 -- Student must never self-assign an admin role. Only provision admins via trusted SQL/admin process.
-do $$declare t text; begin foreach t in array array['universities','colleges','courses','branches','academic_years','admission_forms','fee_structures','fee_assignments','payments','merit_schemes','merit_entries','audit_logs'] loop execute format('alter table public.%I enable row level security',t); execute format('create policy admin_all on public.%I for all to authenticated using(public.is_admin()) with check(public.is_admin())',t); end loop; end$$;
+do $$declare t text; begin foreach t in array array['universities','colleges','courses','branches','academic_years','admission_forms','fee_structures','fee_assignments','payments','merit_schemes','merit_entries','audit_logs'] loop execute format('alter table public.%I enable row level security',t); execute format('drop policy if exists admin_all on public.%I',t); execute format('create policy admin_all on public.%I for all to authenticated using(public.is_admin()) with check(public.is_admin())',t); end loop; end$$;
+
+drop policy if exists published_forms_read on admission_forms;
 
 create policy published_forms_read on admission_forms for
 select
   to authenticated using (status = 'published');
+
+drop policy if exists student_merit_read on merit_entries;
 
 create policy student_merit_read on merit_entries for
 select
@@ -205,13 +215,19 @@ select
 
 alter table applications enable row level security;
 
+drop policy if exists app_admin on applications;
+
 create policy app_admin on applications for all to authenticated using (public.is_admin ())
 with
   check (public.is_admin ());
 
+drop policy if exists app_student_read on applications;
+
 create policy app_student_read on applications for
 select
   to authenticated using (student_id = auth.uid ());
+
+drop policy if exists app_student_insert on applications;
 
 create policy app_student_insert on applications for insert to authenticated
 with
@@ -237,13 +253,19 @@ grant insert (student_id, form_id, answers) on public.applications to authentica
 
 alter table documents enable row level security;
 
+drop policy if exists docs_admin on documents;
+
 create policy docs_admin on documents for all to authenticated using (public.is_admin ())
 with
   check (public.is_admin ());
 
+drop policy if exists docs_student_read on documents;
+
 create policy docs_student_read on documents for
 select
   to authenticated using (student_id = auth.uid ());
+
+drop policy if exists docs_student_insert on documents;
 
 create policy docs_student_insert on documents for insert to authenticated
 with
@@ -266,6 +288,8 @@ from
 
 grant insert (application_id, student_id, label, storage_path) on public.documents to authenticated;
 
+drop policy if exists own_fees on fee_assignments;
+
 create policy own_fees on fee_assignments for
 select
   to authenticated using (
@@ -279,6 +303,8 @@ select
         and a.student_id = auth.uid ()
     )
   );
+
+drop policy if exists own_payments on payments;
 
 create policy own_payments on payments for
 select
@@ -313,12 +339,16 @@ values
   )
 on conflict (id) do nothing;
 
+drop policy if exists student_upload on storage.objects;
+
 create policy student_upload on storage.objects for insert to authenticated
 with
   check (
     bucket_id = 'student-documents'
     and (storage.foldername (name)) [1] = auth.uid ()::text
   );
+
+drop policy if exists student_read on storage.objects;
 
 create policy student_read on storage.objects for
 select

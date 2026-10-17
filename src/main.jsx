@@ -1,15 +1,62 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { supabase, configured } from './supabase';
+import { downloadExcel } from './lib/excel';
+import { fieldLabel, isUuid, isUuidField } from './lib/validation';
 import './style.css';
+const DynamicFormBuilder = React.lazy(
+	() => import('./components/DynamicFormBuilder'),
+);
+const SmartIdCards = React.lazy(() => import('./components/SmartIdCards'));
+const UserManagement = React.lazy(() => import('./components/UserManagement'));
+const PublicInquiry = React.lazy(() =>
+	import('./components/InquiryModule').then((module) => ({
+		default: module.PublicInquiry,
+	})),
+);
+const InquiryDashboard = React.lazy(() =>
+	import('./components/InquiryModule').then((module) => ({
+		default: module.InquiryDashboard,
+	})),
+);
+const InquiryAdmissions = React.lazy(
+	() => import('./components/InquiryAdmissions'),
+);
+const ExcelTableTools = React.lazy(
+	() => import('./components/ExcelTableTools'),
+);
+const TimetableModule = React.lazy(() =>
+	import('./components/Academics').then((module) => ({
+		default: module.TimetableModule,
+	})),
+);
+const LeaveModule = React.lazy(() =>
+	import('./components/Academics').then((module) => ({
+		default: module.LeaveModule,
+	})),
+);
+const AttendanceModule = React.lazy(() =>
+	import('./components/Academics').then((module) => ({
+		default: module.AttendanceModule,
+	})),
+);
 const modules = [
 	['Dashboard', 'LayoutDashboard'],
-	['Universities', '\u{1F3DB}\uFE0F'],
 	['Colleges', '\u{1F3EB}'],
 	['Courses', '\u{1F4DA}'],
 	['Branches', '\u{1F33F}'],
 	['Academic Years', '\u{1F4C5}'],
+	['Faculty', '\u{1F9D1}\u200D\u{1F3EB}'],
+	['Student Management', '\u{1F9D1}\u200D\u{1F393}'],
+	['Subjects', '\u{1F4D8}'],
+	['Timetable Management', '\u{1F550}'],
+	['Leave Management', '\u{1F334}'],
+	['Attendance', '\u2705'],
+	['Inquiries', '\u{1F4DE}'],
 	['Form Builder', '\u{1F4DD}'],
+	['User Management', '\u{1F465}'],
+	['ID Cards', '\u{1F39F}\uFE0F'],
+	['Final Admissions', '\u{1F393}'],
 	['Applications', '\u{1F468}\u200D\u{1F393}'],
 	['Documents', '\u{1F4C1}'],
 	['Fee Structures', '\u20B9'],
@@ -20,15 +67,73 @@ const modules = [
 	['Reports', '\u{1F4C8}'],
 	['My Applications', '\u{1F464}'],
 ];
+const moduleCards = [
+	{
+		id: 'admissions',
+		title: 'Admission Management',
+		description: 'Inquiry, Admission, Intake, Fees & Receipt',
+		icon: '\u{1F4CB}',
+		badge: 'Separate Login',
+		pages: [
+			'Dashboard',
+			'Inquiries',
+			'Applications',
+			'ID Cards',
+			'Final Admissions',
+			'Documents',
+			'Fee Structures',
+			'Fee Assignments',
+			'Payments',
+			'Form Builder',
+		],
+	},
+	{
+		id: 'student_management',
+		title: 'Student Management',
+		description: 'Student Master, Department, Semester, Division',
+		icon: '\u{1F465}',
+		badge: 'Separate Login',
+		pages: ['Dashboard', 'Student Management'],
+	},
+	{
+		id: 'timetable_faculty',
+		title: 'Time Table & Faculty',
+		description: 'Faculty Login, Leave, Proxy & Attendance',
+		icon: '\u{1F4C5}',
+		badge: 'Separate Login',
+		pages: [
+			'Dashboard',
+			'Faculty',
+			'Subjects',
+			'Timetable Management',
+			'Leave Management',
+			'Attendance',
+		],
+	},
+	{
+		id: 'super_admin',
+		title: 'Super Admin',
+		description: 'College Settings, Users, Permissions, Excel Templates',
+		icon: '\u2699\uFE0F',
+		badge: 'Restricted',
+		pages: null,
+	},
+];
+const moduleById = Object.fromEntries(moduleCards.map((card) => [card.id, card]));
 const meta = {
-	Universities: ['universities', ['name', 'active']],
-	Colleges: ['colleges', ['name', 'university_id', 'active']],
+	Colleges: ['colleges', ['name', 'active']],
 	Courses: ['courses', ['name', 'code', 'active']],
 	Branches: ['branches', ['name', 'course_id', 'intake', 'active']],
 	'Academic Years': [
 		'academic_years',
 		['name', 'starts_on', 'ends_on', 'active'],
 	],
+	Faculty: ['faculty', ['code', 'name', 'department', 'active']],
+	'Student Management': [
+		'students',
+		['enrollment', 'name', 'course', 'semester', 'division', 'active'],
+	],
+	Subjects: ['subjects', ['code', 'name', 'course', 'semester', 'active']],
 	'Form Builder': [
 		'admission_forms',
 		['title', 'description', 'status', 'fields'],
@@ -48,6 +153,16 @@ const meta = {
 		['scheme_id', 'application_id', 'score', 'rank', 'category', 'published'],
 	],
 };
+const excelImportTables = new Set([
+	'colleges',
+	'courses',
+	'branches',
+	'academic_years',
+	'fee_structures',
+	'faculty',
+	'students',
+	'subjects',
+]);
 const money = (n) =>
 	'\u20B9' +
 	(Number(n || 0) / 100).toLocaleString('en-IN', {
@@ -72,18 +187,64 @@ function AdmissionField({ field }) {
 					</option>
 				))}
 			</select>
-		);
+			);
 
 	if (field.type === 'textarea') return <textarea {...common} rows={4} />;
 
 	if (field.type === 'checkbox') return <input {...common} type="checkbox" />;
 
+	if (field.type === 'radio')
+		return (
+			<div className="admission-radio-group">
+				{(field.options ?? []).map((option) => (
+					<label key={option}>
+						<input
+							type="radio"
+							name={field.key}
+							value={option}
+							required={Boolean(field.required)}
+						/>
+						{option}
+					</label>
+				))}
+			</div>
+		);
 	const inputType = ['email', 'date', 'number', 'tel', 'url'].includes(
 		field.type,
 	)
 		? field.type
 		: 'text';
 	return <input {...common} type={inputType} />;
+}
+
+class FormBuilderErrorBoundary extends React.Component {
+	state = { error: null };
+
+	static getDerivedStateFromError(error) {
+		return { error };
+	}
+
+	componentDidCatch(error) {
+		console.error('Form Builder failed to render:', error);
+	}
+
+	render() {
+		if (this.state.error) {
+			return (
+				<section className="panel">
+					<h2>Form Builder could not be opened</h2>
+					<p>{this.state.error.message || 'An unexpected rendering error occurred.'}</p>
+					<button
+						type="button"
+						onClick={() => this.setState({ error: null })}
+					>
+						Try again
+					</button>
+				</section>
+			);
+		}
+		return this.props.children;
+	}
 }
 
 function App() {
@@ -99,9 +260,60 @@ function App() {
 		[editing, G] = useState(null),
 		[form, F] = useState({}),
 		[studentApplications, SA] = useState([]),
+		[staffRole, SR] = useState(null),
+		[staffFacultyId, SF] = useState(null),
+		[staffAccessLoaded, setStaffAccessLoaded] = useState(false),
+		[activePortal, setActivePortal] = useState(
+			() => sessionStorage.getItem('svit-active-portal') || '',
+		),
+		[publicInquiryRoute, setPublicInquiryRoute] = useState(
+			window.location.hash === '#/inquiry',
+		),
 		[auth, A] = useState({ email: '', password: '', full_name: '' }),
 		[signup, SU] = useState(false);
 	const admin = profile?.role === 'admin';
+	const idCardOperator = staffRole === 'id_card';
+	const canManageIdCards = admin || idCardOperator;
+	const canPrepareAdmissions = admin || staffRole === 'data_entry';
+	const canDecideAdmissions = admin || staffRole === 'authority';
+	const canReadAdmissions =
+		admin ||
+		['data_entry', 'authority', 'principal', 'department_head'].includes(
+			staffRole,
+		);
+	const canManageInquiries =
+		admin || ['authority', 'data_entry'].includes(staffRole);
+	const canReadInquiries =
+		canManageInquiries || ['principal', 'department_head'].includes(staffRole);
+	const canManageAcademics = admin || staffRole === 'department_head';
+	const canReadAcademics =
+		canManageAcademics ||
+		['authority', 'principal', 'data_entry', 'faculty'].includes(staffRole);
+	const canReadStudentRoster =
+		canReadAcademics && staffRole !== 'faculty';
+	const canRecordAttendance = canManageAcademics || staffRole === 'faculty';
+	const canManageCurrentMaster =
+		admin ||
+		(canManageAcademics &&
+			['Student Management', 'Faculty', 'Subjects'].includes(page));
+	const canReadCurrentMaster =
+		admin ||
+		(page === 'Student Management' && canReadStudentRoster) ||
+		(['Faculty', 'Subjects'].includes(page) && canReadAcademics);
+	const allowedPortals = new Set([
+		...(admin ? moduleCards.map((card) => card.id) : []),
+		...(canReadAdmissions ||
+		canReadInquiries ||
+		idCardOperator ||
+		(!staffRole && profile?.role !== 'admin')
+			? ['admissions']
+			: []),
+		...(canReadStudentRoster ? ['student_management'] : []),
+		...(canReadAcademics &&
+		(staffRole !== 'faculty' || Boolean(staffFacultyId))
+			? ['timetable_faculty']
+			: []),
+	]);
 	const table = meta[page]?.[0];
 	const fields = meta[page]?.[1];
 	async function loadProfile(user) {
@@ -121,6 +333,12 @@ function App() {
 		}
 		P(data);
 	}
+	useEffect(() => {
+		const updateRoute = () =>
+			setPublicInquiryRoute(window.location.hash === '#/inquiry');
+		window.addEventListener('hashchange', updateRoute);
+		return () => window.removeEventListener('hashchange', updateRoute);
+	}, []);
 	useEffect(() => {
 		if (!configured) {
 			L(false);
@@ -154,6 +372,57 @@ function App() {
 		if (!session || !profile) return;
 		refresh();
 	}, [page, session, profile]);
+	useEffect(() => {
+		const onImport = (event) => {
+			if (event.detail === table) void refresh();
+		};
+		window.addEventListener('erp-data-imported', onImport);
+		return () => window.removeEventListener('erp-data-imported', onImport);
+	}, [table, session, profile]);
+	useEffect(() => {
+		let cancelled = false;
+		async function loadStaffAccess() {
+			if (!session || !profile || admin) {
+				SR(null);
+				SF(null);
+				setStaffAccessLoaded(Boolean(profile));
+				return;
+			}
+			setStaffAccessLoaded(false);
+			const { data, error } = await supabase
+				.from('staff_members')
+				.select('role_code,active,faculty_id')
+				.eq('user_id', session.user.id)
+				.maybeSingle();
+			if (cancelled) return;
+			if (error) {
+				SR(null);
+				SF(null);
+				setStaffAccessLoaded(true);
+				if (error.code !== 'PGRST205' && error.code !== '42P01')
+					E(error.message);
+				return;
+			}
+			SR(data?.active ? data.role_code : null);
+			SF(data?.active ? data.faculty_id ?? null : null);
+			setStaffAccessLoaded(true);
+		}
+		void loadStaffAccess();
+		return () => {
+			cancelled = true;
+		};
+	}, [session, profile, admin]);
+	useEffect(() => {
+		if (!session || !profile || !staffAccessLoaded || !activePortal) return;
+		if (allowedPortals.has(activePortal)) {
+			E('');
+			return;
+		}
+		E('Your account does not have access to this module.');
+		sessionStorage.removeItem('svit-active-portal');
+		setActivePortal('');
+		void supabase.auth.signOut();
+	}, [session, profile, staffAccessLoaded, activePortal, staffRole, staffFacultyId]);
 	async function refresh() {
 		E('');
 		if (!supabase) return;
@@ -228,12 +497,35 @@ function App() {
 				'Registration submitted. Confirm your email if confirmation is enabled.',
 			);
 	}
+	function choosePortal(portalId) {
+		sessionStorage.setItem('svit-active-portal', portalId);
+		setActivePortal(portalId);
+		Q('Dashboard');
+		SU(false);
+		E('');
+		N('');
+	}
+	async function signOut() {
+		const { error } = await supabase.auth.signOut();
+		if (error) {
+			E(error.message);
+			return;
+		}
+		sessionStorage.removeItem('svit-active-portal');
+		setActivePortal('');
+		Q('Dashboard');
+		G(null);
+	}
 	async function save(e) {
 		e.preventDefault();
 		E('');
 		let data = { ...form };
 		for (const [k, v] of Object.entries(data)) {
 			if (v === '') data[k] = null;
+			if (isUuidField(k) && data[k] !== null && !isUuid(v)) {
+				E(`${fieldLabel(k)} must be a valid UUID.`);
+				return;
+			}
 			if (['fields', 'formula'].includes(k) && typeof v === 'string') {
 				try {
 					data[k] = JSON.parse(v);
@@ -293,9 +585,10 @@ function App() {
 			E('Add at least one field before publishing this form.');
 			return;
 		}
-		const res = editing
-			? await supabase.from(table).update(data).eq('id', editing)
-			: await supabase.from(table).insert(data);
+		const res =
+			editing && editing !== 'new'
+				? await supabase.from(table).update(data).eq('id', editing)
+				: await supabase.from(table).insert(data);
 		if (res.error) E(res.error.message);
 		else {
 			N('Record saved');
@@ -339,24 +632,19 @@ function App() {
 	async function apply(e) {
 		e.preventDefault();
 		const formElement = e.currentTarget;
-		const { data: published2, error } = await supabase
-			.from('admission_forms')
-			.select('id,title,fields')
-			.eq('status', 'published')
-			.limit(1);
-		if (error || !published2?.length) {
-			E(error?.message || 'No published admission form available');
+		if (!published?.id || !Array.isArray(published.fields)) {
+			E('No published admission form available');
 			return;
 		}
-		let x = published2[0];
 		let answers = {};
-		for (const f of x.fields) {
+		for (const f of published.fields) {
 			const control = formElement.elements.namedItem(f.key);
 			if (!control) {
 				E(`The published form field "${f.label}" is invalid.`);
 				return;
 			}
-			const v = f.type === 'checkbox' ? control.checked : (control.value ?? '');
+			const v =
+				f.type === 'checkbox' ? control.checked : (control.value ?? '');
 			if (f.required && (typeof v === 'boolean' ? !v : !String(v).trim())) {
 				E(f.label + ' is required');
 				return;
@@ -365,7 +653,7 @@ function App() {
 		}
 		const r = await supabase
 			.from('applications')
-			.insert({ student_id: session.user.id, form_id: x.id, answers });
+			.insert({ student_id: session.user.id, form_id: published.id, answers });
 		if (r.error) E(r.error.message);
 		else {
 			N('Application submitted');
@@ -388,6 +676,7 @@ function App() {
 				.from('admission_forms')
 				.select('*')
 				.eq('status', 'published')
+				.order('created_at', { ascending: false })
 				.limit(1)
 				.then(({ data, error }) => {
 					if (error) E(error.message);
@@ -437,21 +726,94 @@ function App() {
 				</p>
 			</div>
 		);
+	if (publicInquiryRoute)
+		return (
+			<Suspense fallback={<div className="setup">Loading inquiry form...</div>}>
+				<PublicInquiry />
+			</Suspense>
+		);
 	if (loading) return <div className="setup">Loading…</div>;
+	if ((!session && !activePortal) || (session && !activePortal && staffAccessLoaded))
+		return (
+			<div className="module-home">
+				<header className="module-home-header">
+					<div>
+						<div className="module-eyebrow">SVIT ERP</div>
+						<h1>Main Dashboard Structure</h1>
+					</div>
+					{session && (
+						<div className="account">
+							<span>{profile?.full_name || session.user.email}</span>
+							<button type="button" onClick={() => void signOut()}>
+								Sign out
+							</button>
+						</div>
+					)}
+				</header>
+				<section className="module-group">
+					<h2>
+						<span aria-hidden="true">🎓</span> College Management System
+					</h2>
+					<div className="module-cards">
+						{moduleCards
+							.filter(
+								(card) =>
+									!session ||
+									(staffAccessLoaded && allowedPortals.has(card.id)),
+							)
+							.map((card) => (
+								<button
+									type="button"
+									className="module-card"
+									key={card.id}
+									onClick={() => choosePortal(card.id)}
+								>
+									<span className="module-icon" aria-hidden="true">
+										{card.icon}
+									</span>
+									<span className="module-title">{card.title}</span>
+									<span className="module-description">
+										{card.description}
+									</span>
+									<span
+										className={`module-badge ${card.id === 'super_admin' ? 'restricted' : ''}`}
+									>
+										{card.badge}
+									</span>
+								</button>
+							))}
+					</div>
+					{session && staffAccessLoaded && !allowedPortals.size && (
+						<div className="error">
+							This account has no active module access. Contact the
+							administrator.
+						</div>
+					)}
+				</section>
+				{err && <div className="error">{err}</div>}
+			</div>
+		);
 	if (!session)
 		return (
 			<div className="authwrap">
 				<div className="authbrand">
 					<div className="logo">S</div>
-					<h1>SVIT Admission ERP</h1>
-					<p>One college. One connected admission workspace.</p>
+					<p className="module-eyebrow">SVIT ERP MODULE LOGIN</p>
+					<h1>{moduleById[activePortal]?.title || 'Module Login'}</h1>
+					<p>
+						{moduleById[activePortal]?.description ||
+							'Sign in to continue to your workspace.'}
+					</p>
 					<div className="authart">
-						Admissions • Verification • Fees • Merit
+						{moduleById[activePortal]?.title || 'SVIT ERP'}
 					</div>
 				</div>
 				<form className="authcard" onSubmit={login}>
 					<h2>{signup ? 'Student Registration' : 'Welcome back'}</h2>
-					<p>Sign in to continue to the portal</p>
+					<p>
+						Sign in to{' '}
+						{moduleById[activePortal]?.title || 'your selected module'}
+					</p>
 					{signup && (
 						<label>
 							Full Name
@@ -486,29 +848,151 @@ function App() {
 					<button className="primary">
 						{signup ? 'Create student account' : 'Sign In'}
 					</button>
+					{activePortal === 'admissions' && (
+						<button
+							type="button"
+							className="link"
+							onClick={() => {
+								SU(!signup);
+								E('');
+							}}
+						>
+							{signup
+								? 'Already registered? Sign in'
+								: 'New student? Register here'}
+						</button>
+					)}
 					<button
 						type="button"
 						className="link"
 						onClick={() => {
-							SU(!signup);
+							setActivePortal('');
+							sessionStorage.removeItem('svit-active-portal');
+							SU(false);
 							E('');
 						}}
 					>
-						{signup
-							? 'Already registered? Sign in'
-							: 'New student? Register here'}
+						← Choose another module
 					</button>
+					{activePortal === 'admissions' && (
+						<a className="link" href="#/inquiry">
+							Ask about admission
+						</a>
+					)}
 				</form>
 			</div>
 		);
-	const nav = admin
+	if (!profile || !staffAccessLoaded)
+		return <div className="setup">Loading account access…</div>;
+	if (!allowedPortals.has(activePortal))
+		return (
+			<div className="setup">
+				<h1>Module access restricted</h1>
+				<p>Your account does not have access to this module.</p>
+				<div className="actions">
+					<button
+						type="button"
+						onClick={() => {
+							setActivePortal('');
+							sessionStorage.removeItem('svit-active-portal');
+						}}
+					>
+						Choose another module
+					</button>
+					<button type="button" onClick={() => void signOut()}>
+						Sign out
+					</button>
+				</div>
+			</div>
+		);
+	const roleNav = admin
 		? modules.filter(([x]) => x !== 'My Applications')
-		: modules.filter(([x]) =>
-				['Dashboard', 'My Applications', 'Documents'].includes(x),
-			);
+		: staffRole
+			? modules.filter(([x]) =>
+					[
+						'Dashboard',
+						...(canReadInquiries ? ['Inquiries'] : []),
+						...(idCardOperator ? ['Applications', 'ID Cards'] : []),
+						...(canReadAdmissions ? ['Final Admissions'] : []),
+						...(canReadStudentRoster ? ['Student Management'] : []),
+						...(canReadAcademics ? ['Faculty', 'Subjects'] : []),
+						...(canReadAcademics &&
+						(staffRole !== 'faculty' || Boolean(staffFacultyId))
+							? ['Timetable Management']
+							: []),
+						...(canManageAcademics ||
+						(staffRole === 'faculty' && Boolean(staffFacultyId))
+							? ['Leave Management']
+							: []),
+						...(canRecordAttendance &&
+						(canManageAcademics || Boolean(staffFacultyId))
+							? ['Attendance']
+							: []),
+					].includes(x),
+				)
+			: modules.filter(([x]) =>
+					['Dashboard', 'My Applications', 'Documents'].includes(x),
+				);
+	const nav =
+		activePortal === 'super_admin'
+			? roleNav
+			: roleNav.filter(([name]) =>
+					moduleById[activePortal]?.pages?.includes(name),
+				);
 	const visible = rows.filter((r) =>
 		JSON.stringify(r).toLowerCase().includes(search.toLowerCase()),
 	);
+	async function exportApplications() {
+		try {
+			await downloadExcel({
+				fileName: 'svit-applications',
+				sheetName: 'Applications',
+				columns: [
+					{ key: 'application_number', label: 'Application number' },
+					{ key: 'student_id', label: 'Student ID' },
+					{ key: 'status', label: 'Status' },
+					{ key: 'created_at', label: 'Created at' },
+				],
+				rows: visible,
+			});
+		} catch (error) {
+			E(error instanceof Error ? error.message : 'Excel export failed.');
+		}
+	}
+	async function exportDocuments() {
+		try {
+			await downloadExcel({
+				fileName: 'svit-document-register',
+				sheetName: 'Document register',
+				columns: [
+					{ key: 'label', label: 'Document label' },
+					{ key: 'application_id', label: 'Application ID' },
+					{ key: 'created_at', label: 'Uploaded at' },
+				],
+				rows: visible,
+			});
+		} catch (error) {
+			E(error instanceof Error ? error.message : 'Excel export failed.');
+		}
+	}
+	async function exportReport() {
+		try {
+			await downloadExcel({
+				fileName: 'svit-admission-overview',
+				sheetName: 'Overview',
+				columns: [
+					{ key: 'metric', label: 'Metric' },
+					{ key: 'value', label: 'Value' },
+				],
+				rows: Object.entries(stats).map(([metric, value]) => ({
+					metric,
+					value,
+				})),
+			});
+		} catch (error) {
+			E(error instanceof Error ? error.message : 'Excel export failed.');
+		}
+	}
 	return (
 		<div className="shell">
 			<aside>
@@ -516,10 +1000,12 @@ function App() {
 					<div className="logo">S</div>
 					<div>
 						<b>SVIT ERP</b>
-						<small>Admission Management</small>
+						<small>{moduleById[activePortal]?.title}</small>
 					</div>
 				</div>
-				<div className="navtitle">WORKSPACE</div>
+				<div className="navtitle">
+					{moduleById[activePortal]?.title || 'WORKSPACE'}
+				</div>
 				<nav>
 					{nav.map(([n, ico]) => (
 						<button
@@ -546,7 +1032,9 @@ function App() {
 			<main>
 				<header>
 					<div>
-						<small>SVIT / {page}</small>
+						<small>
+							SVIT / {moduleById[activePortal]?.title} / {page}
+						</small>
 						<h1>{page}</h1>
 					</div>
 					<div className="account">
@@ -557,7 +1045,7 @@ function App() {
 							<b>{profile?.full_name || session.user.email}</b>
 							<small>{profile?.role || 'student'}</small>
 						</div>
-						<button onClick={() => supabase.auth.signOut()}>Sign out</button>
+						<button onClick={() => void signOut()}>Sign out</button>
 					</div>
 				</header>
 				{err && (
@@ -576,10 +1064,10 @@ function App() {
 					<>
 						<div className="welcome">
 							<div>
-								<span>ACADEMIC CONTROL CENTER</span>
-								<h2>Welcome to SVIT Admission ERP</h2>
+								<span>{moduleById[activePortal]?.title?.toUpperCase()}</span>
+								<h2>Welcome to SVIT ERP</h2>
 								<p>
-									Manage the admission lifecycle from one connected workspace.
+									{moduleById[activePortal]?.description}
 								</p>
 							</div>
 							<div className="orb">✦</div>
@@ -661,26 +1149,61 @@ function App() {
 						>
 							Export visible applications CSV
 						</button>
+						<button type="button" onClick={() => void exportReport()}>
+							Export overview Excel
+						</button>
 						<p className="hint">
 							This is a basic report. Fee reconciliation and full report builder
 							need further work.
 						</p>
 					</section>
+				) : page === 'Inquiries' && canReadInquiries ? (
+					<Suspense fallback={<section className="panel">Loading inquiries...</section>}>
+						<InquiryDashboard canManage={canManageInquiries} />
+					</Suspense>
+				) : page === 'Timetable Management' && canReadAcademics ? (
+					<Suspense fallback={<section className="panel">Loading timetable...</section>}>
+						<TimetableModule
+							canManage={canManageAcademics}
+							facultyId={staffRole === 'faculty' ? staffFacultyId : null}
+						/>
+					</Suspense>
+				) : page === 'Leave Management' &&
+					(canManageAcademics || (staffRole === 'faculty' && staffFacultyId)) ? (
+					<Suspense fallback={<section className="panel">Loading faculty leave...</section>}>
+						<LeaveModule
+							canManage={canManageAcademics}
+							facultyId={staffRole === 'faculty' ? staffFacultyId : null}
+						/>
+					</Suspense>
+				) : page === 'Attendance' &&
+					canRecordAttendance &&
+					(canManageAcademics || staffFacultyId) ? (
+					<Suspense fallback={<section className="panel">Loading attendance...</section>}>
+						<AttendanceModule
+							canManage={canManageAcademics}
+							facultyId={staffRole === 'faculty' ? staffFacultyId : null}
+						/>
+					</Suspense>
 				) : page === 'My Applications' && !admin ? (
 					<>
 						<section className="panel">
 							<h2>New Admission Application</h2>
 							{published ? (
 								<form onSubmit={apply} className="editgrid">
-									<p>{published.title}</p>
+									<h3>{published.title}</h3>
+									{published.description && <p>{published.description}</p>}
 									{(Array.isArray(published.fields)
 										? published.fields
 										: []
 									).map((f) => (
-										<label key={f.key}>
-											{f.label}
+										<div className="admission-field" key={f.key}>
+											<span>
+												{f.label}
+												{f.required && ' *'}
+											</span>
 											<AdmissionField field={f} />
-										</label>
+										</div>
 									))}
 									<button className="primary">Submit Application</button>
 								</form>
@@ -714,6 +1237,9 @@ function App() {
 								value={search}
 								onChange={(e) => U(e.target.value)}
 							/>
+							<button type="button" onClick={() => void exportApplications()}>
+								Export Excel
+							</button>
 						</div>
 						<div className="tablewrap">
 							<table>
@@ -758,7 +1284,12 @@ function App() {
 					</section>
 				) : page === 'Documents' ? (
 					<section className="panel">
-						<h2>Private Student Documents</h2>
+						<div className="panelhead">
+							<h2>Private Student Documents</h2>
+							<button type="button" onClick={() => void exportDocuments()}>
+								Export register Excel
+							</button>
+						</div>
 						<p>
 							Document uploads require an existing application. Files are stored
 							in a private Supabase bucket.
@@ -880,12 +1411,38 @@ function App() {
 							</table>
 						</div>
 					</section>
-				) : table ? (
+				) : page === 'Form Builder' && admin ? (
+					<Suspense fallback={<section className="panel">Loading Form Builder...</section>}>
+						<FormBuilderErrorBoundary>
+							<DynamicFormBuilder />
+						</FormBuilderErrorBoundary>
+					</Suspense>
+				) : page === 'User Management' && admin ? (
+					<Suspense fallback={<section className="panel">Loading staff management...</section>}>
+						<UserManagement />
+					</Suspense>
+				) : page === 'ID Cards' && canManageIdCards ? (
+					<Suspense fallback={<section className="panel">Loading ID Cards...</section>}>
+						<SmartIdCards />
+					</Suspense>
+				) : page === 'Final Admissions' && canReadAdmissions ? (
+					<Suspense fallback={<section className="panel">Loading admissions...</section>}>
+						<InquiryAdmissions
+							canPrepare={canPrepareAdmissions || canDecideAdmissions}
+							canDecide={canDecideAdmissions}
+							canManageIntakes={admin}
+						/>
+					</Suspense>
+				) : table && canReadCurrentMaster ? (
 					<section className="panel">
 						<div className="panelhead">
 							<div>
 								<h2>{page}</h2>
-								<p>Manage SVIT master data and configuration</p>
+								<p>
+									{canManageCurrentMaster
+										? `Manage ${page.toLowerCase()} records`
+										: `View ${page.toLowerCase()} records`}
+								</p>
 							</div>
 							<div className="actions">
 								<input
@@ -893,12 +1450,26 @@ function App() {
 									value={search}
 									onChange={(e) => U(e.target.value)}
 								/>
-								<button className="primary" onClick={() => edit()}>
-									+ Add New
-								</button>
+								{canManageCurrentMaster && (
+									<>
+										<Suspense fallback={null}>
+											<ExcelTableTools
+												table={table}
+												page={page}
+												fields={fields}
+												allowImport={excelImportTables.has(table)}
+											/>
+										</Suspense>
+										<button className="primary" onClick={() => edit()}>
+											{page === 'Student Management'
+												? '+ Add Student'
+												: '+ Add New'}
+										</button>
+									</>
+								)}
 							</div>
 						</div>
-						{editing && (
+						{editing && canManageCurrentMaster && (
 							<form className="editgrid" onSubmit={save}>
 								<h3>{editing === 'new' ? 'Create record' : 'Edit record'}</h3>
 								{fields.map((k) => (
@@ -974,7 +1545,7 @@ function App() {
 										{fields.map((f) => (
 											<th key={f}>{f.replaceAll('_', ' ')}</th>
 										))}
-										<th>Actions</th>
+										{canManageCurrentMaster && <th>Actions</th>}
 									</tr>
 								</thead>
 								<tbody>
@@ -989,12 +1560,14 @@ function App() {
 															: String(x[f] ?? '\u2014')}
 												</td>
 											))}
-											<td>
-												<button onClick={() => edit(x)}>Edit</button>{' '}
-												<button className="danger" onClick={() => remove(x.id)}>
-													Delete
-												</button>
-											</td>
+											{canManageCurrentMaster && (
+												<td>
+													<button onClick={() => edit(x)}>Edit</button>{' '}
+													<button className="danger" onClick={() => remove(x.id)}>
+														Delete
+													</button>
+												</td>
+											)}
 										</tr>
 									))}
 								</tbody>

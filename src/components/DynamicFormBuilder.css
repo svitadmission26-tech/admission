@@ -1,0 +1,151 @@
+.dfb {
+	font-family: Inter, Arial, sans-serif;
+}
+.dfb-top,
+.dfb-bar,
+.dfb-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+.dfb-top h2,
+.dfb-bar h3 {
+	margin-top: 0;
+}
+.dfb-top p {
+	color: #73849c;
+}
+.dfb-layout {
+	display: grid;
+	grid-template-columns: 230px minmax(0, 1fr);
+	gap: 18px;
+	margin-top: 20px;
+}
+.dfb-list,
+.dfb-editor {
+	min-width: 0;
+	padding: 20px;
+	background: #fff;
+	border: 1px solid #e1e9f4;
+	border-radius: 12px;
+}
+.dfb-list button {
+	display: block;
+	width: 100%;
+	margin: 8px 0;
+	text-align: left;
+}
+.dfb-list button.current {
+	background: #eaf2ff;
+	border-color: #2771c9;
+}
+.dfb-list small {
+	display: block;
+	margin-top: 5px;
+	color: #74849b;
+}
+.dfb-editor > label,
+.dfb-field > label,
+.dfb-preview > label {
+	display: block;
+	margin: 14px 0;
+	font-size: 13px;
+	font-weight: 600;
+}
+.dfb input:not([type='checkbox']):not([type='radio']),
+.dfb select,
+.dfb textarea {
+	display: block;
+	width: 100%;
+	margin-top: 6px;
+	padding: 10px;
+	border: 1px solid #d6e1ee;
+	border-radius: 7px;
+}
+.dfb-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+}
+.dfb-grid label {
+	font-size: 12px;
+}
+.dfb-field {
+	margin: 12px 0;
+	padding: 15px;
+	background: #f8fbff;
+	border: 1px solid #e1e9f4;
+	border-radius: 10px;
+}
+.dfb-field-actions {
+	display: flex;
+	gap: 6px;
+}
+.dfb-check,
+.dfb-radio-options label {
+	display: flex !important;
+	align-items: center;
+	gap: 8px;
+}
+.dfb .dfb-check input,
+.dfb-radio-options input {
+	width: auto;
+	margin: 0;
+}
+.dfb-footer {
+	justify-content: flex-end;
+	flex-wrap: wrap;
+	margin-top: 22px;
+}
+.dfb-primary {
+	color: white;
+	background: #1764bc;
+	border-color: #1764bc;
+}
+.dfb-preview {
+	margin-top: 18px;
+	padding: 20px;
+	border: 1px dashed #8eb2dd;
+	border-radius: 10px;
+}
+.dfb-message {
+	padding: 12px;
+	color: #704b00;
+	background: #fff4dc;
+	border-radius: 8px;
+}
+.dfb-radio-options {
+	display: grid;
+	gap: 8px;
+	margin-top: 8px;
+}
+.admission-field {
+	display: flex;
+	flex-direction: column;
+	gap: 7px;
+	font-size: 12px;
+	font-weight: 600;
+	text-transform: capitalize;
+}
+.admission-field input[type='checkbox'],
+.admission-radio-group input {
+	width: auto;
+}
+.admission-radio-group {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 14px;
+}
+.admission-radio-group label {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-weight: 400;
+}
+@media (max-width: 850px) {
+	.dfb-layout,
+	.dfb-grid {
+		grid-template-columns: 1fr;
+	}
+}

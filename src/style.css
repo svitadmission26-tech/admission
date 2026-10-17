@@ -253,6 +253,20 @@ header small {
 	align-items: center;
 	justify-content: space-between;
 }
+.excel-tools {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+}
+.excel-file-input {
+	display: none;
+}
+.excel-message {
+	flex-basis: 100%;
+	color: #536780;
+	font-size: 11px;
+}
 .panelhead {
 	margin-bottom: 20px;
 }
@@ -404,6 +418,96 @@ th {
 	border-radius: 15px;
 	line-height: 2;
 }
+.module-home {
+	min-height: 100vh;
+	padding: 34px max(24px, calc((100vw - 1184px) / 2));
+	color: #15253d;
+}
+.module-home-header {
+	margin-bottom: 26px;
+}
+.module-home-header h1 {
+	margin: 5px 0;
+	font-size: 25px;
+}
+.module-eyebrow {
+	margin: 0;
+	color: #52769e;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 1.5px;
+}
+.module-group {
+	padding: 20px;
+	border: 1px solid #dce5ef;
+	border-radius: 13px;
+	background: #ffffffb8;
+}
+.module-group h2 {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin: 0 0 20px;
+	font-size: 20px;
+}
+.module-group h2 span {
+	font-size: 25px;
+}
+.module-cards {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16px;
+}
+.module-card {
+	display: flex;
+	min-height: 205px;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 20px;
+	border: 1px solid #dce5ef;
+	border-radius: 10px;
+	background: #fff;
+	text-align: left;
+	transition:
+		border-color 120ms ease,
+		box-shadow 120ms ease,
+		transform 120ms ease;
+}
+.module-card:hover {
+	border-color: #8eb4df;
+	box-shadow: 0 7px 20px #163a6012;
+	transform: translateY(-2px);
+}
+.module-card:focus-visible {
+	outline: 3px solid #4b8bd0;
+	outline-offset: 2px;
+}
+.module-icon {
+	font-size: 27px;
+}
+.module-title {
+	font-size: 20px;
+	font-weight: 600;
+}
+.module-description {
+	color: #708198;
+	font-size: 14px;
+	line-height: 1.5;
+}
+.module-badge {
+	margin-top: auto;
+	padding: 5px 11px;
+	border-radius: 20px;
+	background: #edf3fa;
+	color: #35587f;
+	font-size: 12px;
+	font-weight: 600;
+}
+.module-badge.restricted {
+	background: #fff1d6;
+	color: #86580b;
+}
 @media (max-width: 1050px) {
 	aside {
 		width: 205px;
@@ -461,6 +565,12 @@ th {
 	.authwrap {
 		grid-template-columns: 1fr;
 	}
+	.module-home {
+		padding: 24px 16px;
+	}
+	.module-cards {
+		gap: 12px;
+	}
 	.authbrand {
 		padding: 30px;
 	}
@@ -475,5 +585,20 @@ th {
 	}
 	.panelhead {
 		flex-wrap: wrap;
+	}
+	.module-home-header {
+		align-items: center;
+	}
+	.module-home-header .account {
+		margin-top: 12px;
+	}
+	.module-cards {
+		grid-template-columns: 1fr;
+	}
+	.module-card {
+		min-height: 175px;
+	}
+	.module-title {
+		font-size: 18px;
 	}
 }

@@ -1,0 +1,229 @@
+.inquiry-public {
+	display: grid;
+	grid-template-columns: 43% 57%;
+	min-height: 100vh;
+	background: #f2f6fb;
+	font-family: Inter, Arial, sans-serif;
+}
+.inquiry-hero {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	padding: 12vh 12%;
+	color: #fff;
+	background: linear-gradient(145deg, #092a50, #175da6);
+}
+.inquiry-mark {
+	display: grid;
+	width: 65px;
+	height: 65px;
+	margin-bottom: 70px;
+	place-items: center;
+	color: #145ba7;
+	background: #fff;
+	border-radius: 14px;
+	font-size: 36px;
+	font-weight: 800;
+	text-decoration: none;
+}
+.inquiry-hero > span {
+	color: #a7d1fa;
+	font-size: 11px;
+	letter-spacing: 3px;
+}
+.inquiry-hero h1 {
+	margin: 20px 0;
+	font-size: clamp(32px, 4vw, 56px);
+	line-height: 1.15;
+}
+.inquiry-hero p {
+	max-width: 420px;
+	color: #c9def5;
+	line-height: 1.8;
+}
+.hero-note {
+	margin-top: 60px;
+	padding-top: 24px;
+	border-top: 1px solid #ffffff45;
+	color: #dceaff;
+	font-size: 12px;
+}
+.inquiry-form-wrap {
+	width: min(660px, 90%);
+	margin: 45px auto;
+	padding: 34px;
+	background: white;
+	border: 1px solid #e2eaf4;
+	border-radius: 20px;
+	box-shadow: 0 16px 50px #163b6c10;
+}
+.inquiry-form-head small {
+	color: #2474bd;
+	font-weight: 700;
+	letter-spacing: 2px;
+}
+.inquiry-form-head h2 {
+	margin: 10px 0;
+	font-size: 30px;
+}
+.inquiry-form-head p {
+	color: #71839b;
+	font-size: 12px;
+}
+.inquiry-form {
+	display: grid;
+	gap: 17px;
+	margin-top: 28px;
+}
+.inquiry-form label {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	color: #284361;
+	font-size: 12px;
+	font-weight: 700;
+}
+.inquiry-pair {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 14px;
+}
+.inquiry-form input,
+.inquiry-form select,
+.inquiry-form textarea {
+	width: 100%;
+	padding: 12px;
+	border: 1px solid #d9e3ee;
+	border-radius: 9px;
+	font-weight: 400;
+}
+.inquiry-consent {
+	flex-direction: row !important;
+	align-items: flex-start;
+	line-height: 1.6;
+}
+.inquiry-form .inquiry-consent input {
+	flex: none;
+	width: 16px;
+	margin-top: 2px;
+}
+.inquiry-hp {
+	position: absolute;
+	left: -9999px;
+	height: 0;
+	overflow: hidden;
+}
+.inquiry-submit {
+	padding: 15px;
+	color: white;
+	background: #1459b5;
+	border: 0;
+	border-radius: 9px;
+	font-weight: 800;
+}
+.inquiry-privacy {
+	color: #8493a5;
+	text-align: center;
+}
+.inquiry-confirm {
+	padding: 55px 10px;
+	text-align: center;
+	line-height: 2;
+}
+.inquiry-confirm strong {
+	color: #175da6;
+	font-size: 25px;
+}
+.inquiry-back {
+	display: inline-block;
+	margin-top: 18px;
+	color: #1459b5;
+	font-size: 13px;
+}
+.inquiry-admin {
+	display: grid;
+	gap: 18px;
+}
+.inquiry-kpis {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 15px;
+	margin-bottom: 22px;
+}
+.inquiry-kpi {
+	display: grid;
+	gap: 10px;
+	padding: 22px;
+	background: white;
+	border: 1px solid #e3ebf4;
+	border-radius: 12px;
+}
+.inquiry-kpi small {
+	color: #7c8ca1;
+}
+.inquiry-kpi strong {
+	font-size: 30px;
+}
+.inquiry-details {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 4px 18px;
+	font-size: 13px;
+}
+.inquiry-history {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 15px;
+	margin: 10px 0;
+	padding: 12px;
+	background: #f5f9ff;
+	border-left: 3px solid #2a6fba;
+}
+.inquiry-history small {
+	margin-left: auto;
+	color: #7588a0;
+}
+.inquiry-message {
+	padding: 12px;
+	background: #e8f8ed;
+	border-radius: 8px;
+}
+.inquiry-filters {
+	flex-wrap: wrap;
+}
+.inquiry-lookup {
+	justify-content: flex-start;
+	max-width: 560px;
+}
+.inquiry-lookup input {
+	max-width: 330px;
+}
+@media (max-width: 850px) {
+	.inquiry-public {
+		grid-template-columns: 1fr;
+	}
+	.inquiry-hero {
+		padding: 35px;
+	}
+	.inquiry-mark {
+		margin-bottom: 20px;
+	}
+	.hero-note {
+		margin-top: 15px;
+	}
+	.inquiry-form-wrap {
+		margin: 20px auto;
+	}
+	.inquiry-kpis {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+@media (max-width: 520px) {
+	.inquiry-pair,
+	.inquiry-details {
+		grid-template-columns: 1fr;
+	}
+	.inquiry-form-wrap {
+		padding: 22px;
+	}
+}
