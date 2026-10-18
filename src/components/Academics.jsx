@@ -28,6 +28,10 @@ const blankLeave = {
 	end_date: '',
 	leave_type: '',
 	reason: '',
+	document_url: '',
+	applicant_post: 'staff',
+	approver_post: 'hod',
+	department: '',
 };
 const blankProxy = { slot_id: '', lecture_date: '', proxy_faculty_id: '' };
 
@@ -363,6 +367,7 @@ export function LeaveModule({ canManage, facultyId }) {
 	const [message, setMessage] = useState('');
 	const [busy, setBusy] = useState(false);
 	const [loading, setLoading] = useState(true);
+	const [filterRole, setFilterRole] = useState('all');
 
 	const canApply = canManage || Boolean(facultyId);
 
@@ -371,7 +376,7 @@ export function LeaveModule({ canManage, facultyId }) {
 		const [leavesResult, lookups] = await Promise.all([
 			supabase
 				.from('faculty_leaves')
-				.select('*,faculty(name,code)')
+				.select('*,faculty(id,name,code,department)')
 				.order('created_at', { ascending: false }),
 			loadAcademicsLookups(),
 		]);
@@ -395,67 +400,155 @@ export function LeaveModule({ canManage, facultyId }) {
 		if (busy) return;
 		setBusy(true);
 		setMessage('');
-		const { error } = await supabase.rpc('apply_faculty_leave', {
-			p_faculty_id: form.faculty_id,
-			p_start_date: form.start_date,
-			p_end_date: form.end_date,
-			p_leave_type: form.leave_type,
-			p_reason: form.reason,
-		});
-		setBusy(false);
-		if (error) {
-			setMessage(messageFor(error));
-			return;
+
+		// Compute approver post according to hierarchy:
+		// Staff -> HOD (department-wise), HOD -> Principal, Principal -> Chairman
+		const applicantPost = form.applicant_post || 'staff';
+		const approverPost =
+			applicantPost === 'staff'
+				? 'hod'
+				: applicantPost === 'hod'
+					? 'principal'
+					: 'chairman';
+
+		const selectedFac = faculty.find((f) => f.id === form.faculty_id);
+		const dept = form.department || selectedFac?.department || '';
+
+		const payload = {
+			faculty_id: form.faculty_id,
+			start_date: form.start_date,
+			end_date: form.end_date,
+			leave_type: form.leave_type,
+			reason: form.reason || '',
+			document_url: form.document_url.trim() || null,
+			applicant_post: applicantPost,
+			approver_post: approverPost,
+			department: dept,
+		};
+
+		let insertErr = null;
+		try {
+			const { error: insErr } = await supabase.from('faculty_leaves').insert(payload);
+			insertErr = insErr;
+		} catch (e) {
+			insertErr = e;
 		}
-		setMessage('Leave application submitted.');
+
+		if (insertErr) {
+			// Fallback to legacy RPC
+			const { error } = await supabase.rpc('apply_faculty_leave', {
+				p_faculty_id: form.faculty_id,
+				p_start_date: form.start_date,
+				p_end_date: form.end_date,
+				p_leave_type: form.leave_type,
+				p_reason: form.reason,
+			});
+			if (error) {
+				setBusy(false);
+				setMessage(messageFor(insertErr || error));
+				return;
+			}
+		}
+
+		setBusy(false);
+		setMessage(`Leave application submitted. Routing for approval to: ${approverPost.toUpperCase()}.`);
 		setForm({ ...blankLeave, faculty_id: facultyId || '' });
 		await load();
 	}
 
 	async function decide(leave, decision) {
 		setMessage('');
-		const { error } = await supabase.rpc('decide_faculty_leave', {
-			p_leave_id: leave.id,
-			p_decision: decision,
-		});
-		if (error) setMessage(messageFor(error));
-		else await load();
+		try {
+			const { error } = await supabase.rpc('decide_faculty_leave', {
+				p_leave_id: leave.id,
+				p_decision: decision,
+			});
+			if (error) {
+				// Fallback to direct update if permitted
+				const { error: updErr } = await supabase
+					.from('faculty_leaves')
+					.update({
+						status: decision === 'approve' ? 'approved' : 'rejected',
+						decided_at: new Date().toISOString(),
+					})
+					.eq('id', leave.id);
+				if (updErr) setMessage(messageFor(error || updErr));
+				else await load();
+			} else {
+				await load();
+			}
+		} catch (err) {
+			setMessage(messageFor(err));
+		}
 	}
+
+	const filteredLeaves = leaves.filter((l) => {
+		if (filterRole === 'all') return true;
+		return (l.approver_post || 'hod') === filterRole;
+	});
 
 	return (
 		<section className="panel">
 			<div className="panelhead">
 				<div>
-					<h2>Faculty Leave</h2>
+					<small>LEAVE MANAGEMENT</small>
+					<h2>🌴 Faculty Leave Management</h2>
 					<p>
-						Faculty apply for leave; administrators and department heads approve
-						or reject. A proxy can only be assigned for approved leave.
+						Hierarchical Approval Workflow: <b>Staff ➔ HOD (Department)</b> | <b>HOD ➔ Principal</b> | <b>Principal ➔ Chairman</b> with Document Attachment
 					</p>
 				</div>
 			</div>
 			{canApply ? (
 				<form className="editgrid" onSubmit={apply}>
-					<h3>Apply for leave</h3>
+					<h3>Apply for Leave</h3>
 					<label>
-						Faculty
+						Faculty Member *
 						<select
 							required
 							value={form.faculty_id}
 							disabled={!canManage && Boolean(facultyId)}
-							onChange={(event) =>
-								setForm({ ...form, faculty_id: event.target.value })
-							}
+							onChange={(event) => {
+								const fac = faculty.find((f) => f.id === event.target.value);
+								setForm({
+									...form,
+									faculty_id: event.target.value,
+									department: fac?.department || form.department,
+								});
+							}}
 						>
 							<option value="">Select faculty</option>
 							{faculty.map((member) => (
 								<option key={member.id} value={member.id}>
-									{member.name} {member.code ? `(${member.code})` : ''}
+									{member.name} {member.code ? `(${member.code})` : ''} {member.department ? `· ${member.department}` : ''}
 								</option>
 							))}
 						</select>
 					</label>
 					<label>
-						From
+						Applicant Post / Designation *
+						<select
+							value={form.applicant_post}
+							onChange={(event) =>
+								setForm({ ...form, applicant_post: event.target.value })
+							}
+						>
+							<option value="staff">Staff / Faculty (Requires HOD approval)</option>
+							<option value="hod">HOD (Requires Principal approval)</option>
+							<option value="principal">Principal (Requires Chairman approval)</option>
+						</select>
+					</label>
+					<label>
+						Department
+						<input
+							value={form.department}
+							placeholder="Department name"
+							onChange={(event) =>
+								setForm({ ...form, department: event.target.value })
+							}
+						/>
+					</label>
+					<label>
+						From *
 						<input
 							type="date"
 							required
@@ -466,7 +559,7 @@ export function LeaveModule({ canManage, facultyId }) {
 						/>
 					</label>
 					<label>
-						To
+						To *
 						<input
 							type="date"
 							required
@@ -477,28 +570,45 @@ export function LeaveModule({ canManage, facultyId }) {
 						/>
 					</label>
 					<label>
-						Leave type
+						Leave Type *
 						<input
 							required
 							value={form.leave_type}
-							placeholder="Casual, medical, duty..."
+							placeholder="Casual, Medical, Duty, Academic..."
 							onChange={(event) =>
 								setForm({ ...form, leave_type: event.target.value })
 							}
 						/>
 					</label>
-					<label>
-						Reason
+					<label style={{ gridColumn: '1 / -1' }}>
+						Link for Document Upload (Medical Certificate, Leave Letter, or Cloud URL)
+						<input
+							type="url"
+							placeholder="https://... document or attachment link"
+							value={form.document_url}
+							onChange={(event) =>
+								setForm({ ...form, document_url: event.target.value })
+							}
+						/>
+					</label>
+					<label style={{ gridColumn: '1 / -1' }}>
+						Reason for Leave
 						<textarea
 							rows="2"
 							value={form.reason}
+							placeholder="Enter details or reason..."
 							onChange={(event) => setForm({ ...form, reason: event.target.value })}
 						/>
 					</label>
-					<div className="actions">
+					<div className="actions" style={{ gridColumn: '1 / -1' }}>
 						<button className="primary" disabled={busy}>
-							{busy ? 'Submitting...' : 'Apply for leave'}
+							{busy ? 'Submitting...' : 'Apply for Leave'}
 						</button>
+						<small style={{ marginLeft: 12, color: '#64748b' }}>
+							Will be routed to: <b>
+								{form.applicant_post === 'staff' ? 'HOD (Department Wise)' : form.applicant_post === 'hod' ? 'Principal' : 'Chairman'}
+							</b>
+						</small>
 					</div>
 				</form>
 			) : null}
@@ -507,6 +617,24 @@ export function LeaveModule({ canManage, facultyId }) {
 					{message}
 				</p>
 			)}
+
+			<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+				<h3 style={{ margin: 0 }}>Leave Applications Register</h3>
+				<div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+					<span style={{ fontSize: '0.85rem' }}>Filter by Approver Post:</span>
+					<select
+						value={filterRole}
+						onChange={(e) => setFilterRole(e.target.value)}
+						style={{ padding: '4px 8px', fontSize: '0.85rem' }}
+					>
+						<option value="all">All Leaves</option>
+						<option value="hod">HOD Approvals (Staff)</option>
+						<option value="principal">Principal Approvals (HOD)</option>
+						<option value="chairman">Chairman Approvals (Principal)</option>
+					</select>
+				</div>
+			</div>
+
 			{loading ? (
 				<p>Loading leave applications...</p>
 			) : (
@@ -515,24 +643,51 @@ export function LeaveModule({ canManage, facultyId }) {
 						<thead>
 							<tr>
 								<th>Faculty</th>
+								<th>Dept</th>
+								<th>Post</th>
+								<th>Approver</th>
 								<th>From</th>
 								<th>To</th>
 								<th>Type</th>
-								<th>Reason</th>
+								<th>Document</th>
 								<th>Status</th>
 								{canManage && <th>Actions</th>}
 							</tr>
 						</thead>
 						<tbody>
-							{leaves.map((leave) => (
+							{filteredLeaves.map((leave) => (
 								<tr key={leave.id}>
 									<td>
-										{leave.faculty?.name ?? nameOf(faculty, leave.faculty_id)}
+										<b>{leave.faculty?.name ?? nameOf(faculty, leave.faculty_id)}</b>
+									</td>
+									<td>{leave.faculty?.department || leave.department || '—'}</td>
+									<td>
+										<span className="pill" style={{ textTransform: 'capitalize' }}>
+											{leave.applicant_post || 'staff'}
+										</span>
+									</td>
+									<td>
+										<span className="pill" style={{ background: '#e0e7ff', color: '#3730a3', textTransform: 'uppercase', fontWeight: 600 }}>
+											{leave.approver_post || 'hod'}
+										</span>
 									</td>
 									<td>{leave.start_date}</td>
 									<td>{leave.end_date}</td>
 									<td>{leave.leave_type}</td>
-									<td>{leave.reason || '—'}</td>
+									<td>
+										{leave.document_url ? (
+											<a
+												href={leave.document_url}
+												target="_blank"
+												rel="noopener noreferrer"
+												style={{ color: '#0284c7', textDecoration: 'underline', fontWeight: 500 }}
+											>
+												📎 View
+											</a>
+										) : (
+											<span style={{ color: '#94a3b8' }}>—</span>
+										)}
+									</td>
 									<td>
 										<span className={`pill ${statusClass(leave.status)}`}>
 											{leave.status}
@@ -541,13 +696,13 @@ export function LeaveModule({ canManage, facultyId }) {
 									{canManage && (
 										<td>
 											{leave.status === 'pending' ? (
-												<>
+												<div style={{ display: 'flex', gap: 6 }}>
 													<button
 														type="button"
 														onClick={() => void decide(leave, 'approve')}
 													>
 														Approve
-													</button>{' '}
+													</button>
 													<button
 														type="button"
 														className="danger"
@@ -555,7 +710,7 @@ export function LeaveModule({ canManage, facultyId }) {
 													>
 														Reject
 													</button>
-												</>
+												</div>
 											) : (
 												'—'
 											)}
@@ -565,7 +720,7 @@ export function LeaveModule({ canManage, facultyId }) {
 							))}
 						</tbody>
 					</table>
-					{!leaves.length && <div className="empty">No leave applications yet.</div>}
+					{!filteredLeaves.length && <div className="empty">No leave applications for this filter.</div>}
 				</div>
 			)}
 		</section>

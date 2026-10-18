@@ -1,0 +1,7 @@
+{
+  "react_entry": true,
+  "timing_component": true,
+  "timing_migration": true,
+  "academic_exports": true,
+  "package_lock": true
+}

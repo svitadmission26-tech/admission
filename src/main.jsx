@@ -39,6 +39,7 @@ const ReportBuilder = React.lazy(() => import('./components/ReportBuilder'));
 const InquiryFormBuilder = React.lazy(
 	() => import('./components/InquiryFormBuilder'),
 );
+const CollegeTiming = React.lazy(() => import('./components/CollegeTiming'));
 const TimetableModule = React.lazy(() =>
 	import('./components/Academics').then((module) => ({
 		default: module.TimetableModule,
@@ -53,6 +54,14 @@ const AttendanceModule = React.lazy(() =>
 	import('./components/Academics').then((module) => ({
 		default: module.AttendanceModule,
 	})),
+);
+const NoticeBoard = React.lazy(() => import('./components/NoticeBoard'));
+const TimetableDashboard = React.lazy(
+	() => import('./components/TimetableDashboard'),
+);
+const LeaveDashboard = React.lazy(() => import('./components/LeaveDashboard'));
+const StudentManagement = React.lazy(
+	() => import('./components/StudentManagement'),
 );
 const modules = [
 	['Dashboard', 'LayoutDashboard'],
@@ -77,11 +86,15 @@ const modules = [
 	['Documentation', '\u{1F4D6}'],
 	['Config Guide', '\u2699\uFE0F'],
 	['Bus Seva QR Config', '\u{1F68D}'],
+	['Notice Board', '\u{1F4E2}'],
 	['Faculty', '\u{1F9D1}\u200D\u{1F3EB}'],
 	['Student Management', '\u{1F9D1}\u200D\u{1F393}'],
 	['Subjects', '\u{1F4D8}'],
+	['Timetable Dashboard', '\u{1F4CA}'],
 	['Timetable Management', '\u{1F550}'],
-	['Leave Management', '\u{1F334}'],
+	['College Timing', '\u{1F552}'],
+	['Leave Dashboard', '\u{1F334}'],
+	['Leave Management', '\u{1F4CB}'],
 	['Attendance', '\u2705'],
 	['Inquiries', '\u{1F4DE}'],
 	['ID Cards', '\u{1F39F}\uFE0F'],
@@ -98,19 +111,29 @@ const modules = [
 ];
 const moduleCards = [
 	{
-		id: 'admissions',
-		title: 'Admission Management',
-		description: 'Inquiry, Admission, Intake, Fees & Receipt',
-		icon: '\u{1F4CB}',
-		badge: 'Separate Login',
+		id: 'college_info',
+		title: 'College information',
+		description: 'Users, Universities, Colleges, Courses, Branches, Calendar & Faculty',
+		icon: '\u{1F3DB}\uFE0F',
+		badge: 'Administrative',
 		pages: [
-			'Dashboard',
 			'Manage Users',
 			'Universities',
 			'Colleges',
 			'Courses',
 			'Branches',
 			'Academic Calendar',
+			'Faculty',
+		],
+	},
+	{
+		id: 'admissions',
+		title: 'New Admission Student management',
+		description: 'Inquiries, Admission Forms, Sequences, Fees, Merit, Reports & Notice Board',
+		icon: '\u{1F393}',
+		badge: 'Admissions Portal',
+		pages: [
+			'Dashboard',
 			'Admission Sequences',
 			'Receipt Sequences',
 			'Form Types',
@@ -123,59 +146,88 @@ const moduleCards = [
 			'Calculate Merit',
 			'Inquiry Forms',
 			'Report Builder',
-			'Reports',
 			'Documentation',
 			'Config Guide',
 			'Bus Seva QR Config',
 			'Inquiries',
-			'Applications',
-			'ID Cards',
 			'Final Admissions',
-			'Documents',
 			'Manage Admission Forms',
 			'Fee Assignments',
 			'Payments',
 			'Merit Entries',
+			'Reports',
+			'Workbook Data',
+			'Documents',
+			'Applications',
+			'Notice Board',
+		],
+	},
+	{
+		id: 'timetable',
+		title: 'Time table',
+		description: 'Timetable Dashboard, Subjects, Timetable Management & College Timing',
+		icon: '\u{1F550}',
+		badge: 'Academics',
+		pages: [
+			'Timetable Dashboard',
+			'Subjects',
+			'Timetable Management',
+			'College Timing',
+		],
+	},
+	{
+		id: 'faculty_leave',
+		title: 'Faculty Leave Mangment',
+		description: 'Daily Leave & Proxy Dashboard, Approval by Post (HOD/Principal/Chairman) & Docs',
+		icon: '\u{1F334}',
+		badge: 'Faculty Portal',
+		pages: [
+			'Leave Dashboard',
+			'Leave Management',
 		],
 	},
 	{
 		id: 'student_management',
 		title: 'Student Management',
-		description: 'Student Master, Department, Semester, Division',
-		icon: '\u{1F465}',
-		badge: 'Separate Login',
-		pages: ['Dashboard', 'Student Management'],
-	},
-	{
-		id: 'timetable_faculty',
-		title: 'Time Table & Faculty',
-		description: 'Faculty Login, Leave, Proxy & Attendance',
-		icon: '\u{1F4C5}',
-		badge: 'Separate Login',
+		description: 'Admission Year Student Data (ID & Enrollment Wise), Attendance & ID Cards',
+		icon: '\u{1F9D1}\u200D\u{1F393}',
+		badge: 'Student Records',
 		pages: [
-			'Dashboard',
-			'Faculty',
-			'Subjects',
-			'Timetable Management',
-			'Leave Management',
+			'Student Management',
 			'Attendance',
+			'ID Cards',
 		],
 	},
 	{
 		id: 'super_admin',
 		title: 'Super Admin',
-		description: 'College Settings, Users, Permissions, Excel Templates',
+		description: 'Full ERP Control, All Module Access, Security & User Roles',
 		icon: '\u2699\uFE0F',
-		badge: 'Restricted',
+		badge: 'Full Access',
 		pages: null,
 	},
 ];
 const moduleById = Object.fromEntries(moduleCards.map((card) => [card.id, card]));
 const superAdminModules = [
 	{
-		title: 'Admission Management',
-		description: 'Inquiries, final admissions, intake, forms, fees, and reports',
-		icon: '\u{1F4CB}',
+		title: 'College Information',
+		description: 'Manage users, universities, colleges, courses, branches, and faculty',
+		icon: '\u{1F3DB}\uFE0F',
+		entryPage: 'Colleges',
+		pages: [
+			'Manage Users',
+			'Universities',
+			'Colleges',
+			'Courses',
+			'Branches',
+			'Academic Calendar',
+			'Faculty',
+		],
+	},
+	{
+		title: 'New Admission Student Management',
+		description: 'Inquiries, final admissions, intake, dynamic forms, fees, reports, and notice board',
+		icon: '\u{1F393}',
 		entryPage: 'Final Admissions',
 		pages: [
 			'Inquiries',
@@ -186,27 +238,41 @@ const superAdminModules = [
 			'Fee Assignments',
 			'Payments',
 			'Reports',
+			'Notice Board',
 		],
 	},
 	{
 		title: 'Time Table Management',
-		description: 'Faculty, students, subjects, timetable, and attendance',
-		icon: '\u{1F4C5}',
-		entryPage: 'Timetable Management',
+		description: 'Timetable dashboard, subjects, lecture slots, and college timings',
+		icon: '\u{1F550}',
+		entryPage: 'Timetable Dashboard',
 		pages: [
-			'Faculty',
-			'Student Management',
+			'Timetable Dashboard',
 			'Subjects',
 			'Timetable Management',
-			'Attendance',
+			'College Timing',
 		],
 	},
 	{
-		title: 'Leave Management',
-		description: 'Review and manage faculty leave requests',
+		title: 'Faculty Leave Management',
+		description: 'Day-to-day leave & proxy dashboard, and hierarchical approvals',
 		icon: '\u{1F334}',
-		entryPage: 'Leave Management',
-		pages: ['Leave Management'],
+		entryPage: 'Leave Dashboard',
+		pages: [
+			'Leave Dashboard',
+			'Leave Management',
+		],
+	},
+	{
+		title: 'Student Management',
+		description: 'Admission year student data (ID & Enrollment wise), attendance, and ID cards',
+		icon: '\u{1F9D1}\u200D\u{1F393}',
+		entryPage: 'Student Management',
+		pages: [
+			'Student Management',
+			'Attendance',
+			'ID Cards',
+		],
 	},
 ];
 const superAdminModulePages = new Set(
@@ -328,10 +394,13 @@ const meta = {
 			'fields',
 		],
 	],
-	Faculty: ['faculty', ['code', 'name', 'department', 'active']],
+	Faculty: [
+		'faculty',
+		['code', 'name', 'college_id', 'department', 'designation', 'active'],
+	],
 	'Student Management': [
 		'students',
-		['enrollment', 'name', 'course', 'semester', 'division', 'active'],
+		['enrollment', 'student_id_code', 'name', 'course', 'semester', 'division', 'admission_year', 'active'],
 	],
 	Subjects: ['subjects', ['code', 'name', 'course', 'semester', 'active']],
 	'Form Builder': [
@@ -651,6 +720,8 @@ function App() {
 		[staffFacultyId, SF] = useState(null),
 		[staffPermissions, setStaffPermissions] = useState([]),
 		[staffAccessLoaded, setStaffAccessLoaded] = useState(false),
+		[userAllowedModules, setUserAllowedModules] = useState([]),
+		[publicPortalVisibility, setPublicPortalVisibility] = useState(null),
 		[activePortal, setActivePortal] = useState(
 			() => sessionStorage.getItem('svit-active-portal') || '',
 		),
@@ -696,19 +767,25 @@ function App() {
 					: canReadAcademics || hasPermission('applications.read')));
 	const allowedPortals = new Set([
 		...(admin ? moduleCards.map((card) => card.id) : []),
-		...(moduleById.admissions.pages.some(canAccessPage)
-			? ['admissions']
-			: []),
-		...(canAccessPage('Student Management') ? ['student_management'] : []),
-		...([
-			'Faculty',
-			'Subjects',
-			'Timetable Management',
-			'Leave Management',
-			'Attendance',
-		].some(canAccessPage)
-			? ['timetable_faculty']
-			: []),
+		...((userAllowedModules && userAllowedModules.length > 0)
+			? userAllowedModules
+			: [
+				...(moduleById.college_info?.pages?.some(canAccessPage)
+					? ['college_info']
+					: []),
+				...(moduleById.admissions?.pages?.some(canAccessPage)
+					? ['admissions']
+					: []),
+				...(moduleById.timetable?.pages?.some(canAccessPage)
+					? ['timetable']
+					: []),
+				...(moduleById.faculty_leave?.pages?.some(canAccessPage)
+					? ['faculty_leave']
+					: []),
+				...(moduleById.student_management?.pages?.some(canAccessPage)
+					? ['student_management']
+					: []),
+			]),
 		...(!staffRole && profile?.role !== 'admin'
 			? ['admissions']
 			: []),
@@ -837,6 +914,7 @@ function App() {
 			SR(data?.role_code ?? null);
 			SF(data?.faculty_id ?? null);
 			setStaffPermissions(data?.permissions ?? []);
+			setUserAllowedModules(data?.allowed_modules ?? []);
 			setStaffAccessLoaded(true);
 		}
 		void loadStaffAccess();
@@ -844,6 +922,26 @@ function App() {
 			cancelled = true;
 		};
 	}, [session, profile, admin]);
+	useEffect(() => {
+		supabase
+			.from('login_portal_settings')
+			.select('id, visible_to_public')
+			.then(({ data, error }) => {
+				if (!error && data?.length) {
+					const vis = Object.fromEntries(
+						data.map((item) => [item.id, Boolean(item.visible_to_public)]),
+					);
+					setPublicPortalVisibility(vis);
+				}
+			})
+			.catch(() => {});
+	}, []);
+	useEffect(() => {
+		if (session && staffAccessLoaded && !activePortal && allowedPortals.size === 1) {
+			const onlyPortal = Array.from(allowedPortals)[0];
+			choosePortal(onlyPortal);
+		}
+	}, [session, staffAccessLoaded, activePortal, allowedPortals]);
 	useEffect(() => {
 		if (!session || !profile || !staffAccessLoaded || admin || !staffRole) return;
 		if (staffPermissions.includes(pagePermission(page))) return;
@@ -858,11 +956,10 @@ function App() {
 			E('');
 			return;
 		}
-		E('Your account does not have access to this module.');
+		E(`Your account does not have access to ${moduleById[activePortal]?.title || 'this module'}.`);
 		sessionStorage.removeItem('svit-active-portal');
 		setActivePortal('');
-		void supabase.auth.signOut();
-	}, [session, profile, staffAccessLoaded, activePortal, staffRole, staffFacultyId]);
+	}, [session, profile, staffAccessLoaded, activePortal, staffRole, staffFacultyId, allowedPortals]);
 	async function refresh() {
 		E('');
 		if (!supabase) return;
@@ -989,11 +1086,15 @@ function App() {
 	function choosePortal(portalId) {
 		sessionStorage.setItem('svit-active-portal', portalId);
 		setActivePortal(portalId);
-		const startPage = admin || !staffRole
+		const portalPages = moduleById[portalId]?.pages || [];
+		const fallbackPage = portalPages.includes('Dashboard')
 			? 'Dashboard'
-			: moduleById[portalId]?.pages?.find((name) =>
+			: (portalPages[0] || 'Dashboard');
+		const startPage = admin || !staffRole
+			? fallbackPage
+			: (portalPages.find((name) =>
 					staffPermissions.includes(pagePermission(name)),
-				) || 'Dashboard';
+				) || fallbackPage);
 		Q(startPage);
 		SU(false);
 		E('');
@@ -1635,11 +1736,21 @@ function App() {
 						<div className="module-eyebrow">SVIT ERP</div>
 						<h1>Main Dashboard Structure</h1>
 					</div>
-					{session && (
+					{session ? (
 						<div className="account">
 							<span>{profile?.full_name || session.user.email}</span>
 							<button type="button" onClick={() => void signOut()}>
 								Sign out
+							</button>
+						</div>
+					) : (
+						<div className="account">
+							<button
+								type="button"
+								className="primary"
+								onClick={() => choosePortal('admissions')}
+							>
+								🔑 Sign In to Workspace
 							</button>
 						</div>
 					)}
@@ -1650,11 +1761,15 @@ function App() {
 					</h2>
 					<div className="module-cards">
 						{moduleCards
-							.filter(
-								(card) =>
-									!session ||
-									(staffAccessLoaded && allowedPortals.has(card.id)),
-							)
+							.filter((card) => {
+								if (session) {
+									return staffAccessLoaded && allowedPortals.has(card.id);
+								}
+								if (publicPortalVisibility && publicPortalVisibility[card.id] !== undefined) {
+									return publicPortalVisibility[card.id];
+								}
+								return card.id !== 'super_admin';
+							})
 							.map((card) => (
 								<button
 									type="button"
@@ -2179,6 +2294,24 @@ function App() {
 							<li>Configure merit schemes and manage merit entries manually.</li>
 						</ol>
 					</section>
+				) : (page === 'Timetable Dashboard' || (page === 'Dashboard' && activePortal === 'timetable')) && canReadAcademics ? (
+					<Suspense fallback={<section className="panel">Loading timetable dashboard...</section>}>
+						<TimetableDashboard onNavigate={Q} canManage={canManageAcademics} />
+					</Suspense>
+				) : (page === 'Leave Dashboard' || (page === 'Dashboard' && activePortal === 'faculty_leave')) && (canReadAcademics || staffRole === 'faculty') ? (
+					<Suspense fallback={<section className="panel">Loading leave dashboard...</section>}>
+						<LeaveDashboard onNavigate={Q} canManage={canManageAcademics} userRole={staffRole} />
+					</Suspense>
+				) : page === 'Notice Board' ? (
+					<Suspense fallback={<section className="panel">Loading notice board...</section>}>
+						<NoticeBoard canManage={canManageInquiries || admin} isAdmin={admin} userRole={staffRole} />
+					</Suspense>
+				) : page === 'Student Management' && (admin || canReadStudentRoster) ? (
+					<Suspense fallback={<section className="panel">Loading student management...</section>}>
+						<StudentManagement canManage={canManageAcademics} onNavigate={Q} />
+					</Suspense>
+				) : page === 'College Timing' && canReadAcademics ? (
+					<Suspense fallback={<section className="panel">Loading college timings...</section>}><CollegeTiming canManage={canManageAcademics} /></Suspense>
 				) : page === 'Timetable Management' && canReadAcademics ? (
 					<Suspense fallback={<section className="panel">Loading timetable...</section>}>
 						<TimetableModule

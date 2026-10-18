@@ -5,6 +5,7 @@ import {
 	accessPages,
 	accessPermissions,
 	emptyStaffForm,
+	availableModulePortals,
 } from '../lib/accessControl';
 
 const API_BASE =
@@ -42,6 +43,7 @@ export default function UserManagement() {
 	const [faculty, setFaculty] = useState([]);
 	const [colleges, setColleges] = useState([]);
 	const [courses, setCourses] = useState([]);
+	const [portalSettings, setPortalSettings] = useState([]);
 	const [form, setForm] = useState(emptyStaffForm);
 	const [editingId, setEditingId] = useState(null);
 	const [selectedRole, setSelectedRole] = useState('');
@@ -75,13 +77,23 @@ export default function UserManagement() {
 			const includesFaculty = availableRoles.some(
 				(role) => role.code === 'faculty',
 			);
-			const [usersResult, facultyResult, collegesResult, coursesResult, permissionsResult] = await Promise.all([
-				supabase
+			let usersResult = await supabase
+				.from('staff_members')
+				.select(
+					`user_id,role_code,department_id,active,created_at,scope_all,college_scope_ids,department_scope_ids,course_scope_ids,allowed_modules,${includesFaculty ? 'faculty_id,' : ''}profiles(full_name),departments(name)`,
+				)
+				.order('created_at', { ascending: false });
+
+			if (usersResult.error && usersResult.error.code === '42703') {
+				usersResult = await supabase
 					.from('staff_members')
 					.select(
 						`user_id,role_code,department_id,active,created_at,scope_all,college_scope_ids,department_scope_ids,course_scope_ids,${includesFaculty ? 'faculty_id,' : ''}profiles(full_name),departments(name)`,
 					)
-					.order('created_at', { ascending: false }),
+					.order('created_at', { ascending: false });
+			}
+
+			const [facultyResult, collegesResult, coursesResult, permissionsResult, portalSettingsResult] = await Promise.all([
 				includesFaculty
 					? supabase
 							.from('faculty')
@@ -92,11 +104,16 @@ export default function UserManagement() {
 				supabase.from('colleges').select('id,name').eq('active', true).order('name'),
 				supabase.from('courses').select('id,name,college_id').eq('active', true).order('name'),
 				supabase.from('role_permissions').select('role_code,permission'),
+				supabase.from('login_portal_settings').select('*').order('display_order'),
 			]);
 			const error = usersResult.error || facultyResult.error || collegesResult.error || coursesResult.error || permissionsResult.error;
 			if (error) {
 				setMessage(getStaffSchemaError(error));
 				return;
+			}
+
+			if (portalSettingsResult?.data) {
+				setPortalSettings(portalSettingsResult.data);
 			}
 
 			setUsers(usersResult.data ?? []);
@@ -275,6 +292,7 @@ export default function UserManagement() {
 									college_scope_ids: form.college_scope_ids,
 									department_scope_ids: form.department_scope_ids,
 									course_scope_ids: form.course_scope_ids,
+									allowed_modules: form.allowed_modules || [],
 								}
 							: {
 									full_name: form.full_name,
@@ -287,6 +305,7 @@ export default function UserManagement() {
 									college_scope_ids: form.college_scope_ids,
 									department_scope_ids: form.department_scope_ids,
 									course_scope_ids: form.course_scope_ids,
+									allowed_modules: form.allowed_modules || [],
 								},
 					),
 				},
@@ -295,6 +314,14 @@ export default function UserManagement() {
 			if (!response.ok) {
 				throw new Error(result.error || `Request failed (${response.status}).`);
 			}
+
+			// Ensure allowed_modules is also saved via direct table update
+			try {
+				await supabase
+					.from('staff_members')
+					.update({ allowed_modules: form.allowed_modules || [] })
+					.eq('user_id', editingId || result.id);
+			} catch (_) {}
 
 			setMessage(
 				`${editingId
@@ -306,6 +333,27 @@ export default function UserManagement() {
 			await load();
 		} catch (error) {
 			setMessage(getErrorMessage(error));
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	async function savePortalSetting(portalId, field, value) {
+		setBusy(true);
+		try {
+			const { error } = await supabase
+				.from('login_portal_settings')
+				.update({ [field]: value, updated_at: new Date().toISOString() })
+				.eq('id', portalId);
+			if (error) setMessage(error.message);
+			else {
+				setPortalSettings((curr) =>
+					curr.map((p) => (p.id === portalId ? { ...p, [field]: value } : p)),
+				);
+				setMessage('Portal visibility setting updated.');
+			}
+		} catch (err) {
+			setMessage(err.message);
 		} finally {
 			setBusy(false);
 		}
@@ -470,6 +518,47 @@ export default function UserManagement() {
 						))}
 					</>
 				)}
+				<fieldset className="access-scope-options" style={{ gridColumn: '1 / -1' }}>
+					<legend>🔐 Allowed Modules / Portals (User-wise Login Setting)</legend>
+					<p style={{ margin: '0 0 10px', fontSize: '0.85rem', color: '#475569' }}>
+						Select which modules this user will see upon login. If none selected, the user inherits the default modules for their role ({roles.find(r => r.code === form.role_code)?.label || form.role_code}).
+					</p>
+					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+						{availableModulePortals.map((portal) => (
+							<label key={portal.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+								<input
+									type="checkbox"
+									checked={(form.allowed_modules || []).includes(portal.id)}
+									onChange={() =>
+										setForm({
+											...form,
+											allowed_modules: (form.allowed_modules || []).includes(portal.id)
+												? (form.allowed_modules || []).filter((id) => id !== portal.id)
+												: [...(form.allowed_modules || []), portal.id],
+										})
+									}
+								/>
+								<span>{portal.icon} <b>{portal.title}</b></span>
+							</label>
+						))}
+					</div>
+					<div style={{ marginTop: 8, display: 'flex', gap: 10 }}>
+						<button
+							type="button"
+							style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+							onClick={() => setForm({ ...form, allowed_modules: availableModulePortals.map(p => p.id) })}
+						>
+							Select All Modules
+						</button>
+						<button
+							type="button"
+							style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+							onClick={() => setForm({ ...form, allowed_modules: [] })}
+						>
+							Clear (Use Role Default)
+						</button>
+					</div>
+				</fieldset>
 				{editingId && (
 					<label>
 						Account access
@@ -516,6 +605,7 @@ export default function UserManagement() {
 								<th>Department</th>
 								<th>Faculty link</th>
 								<th>Data scope</th>
+								<th>Allowed Modules (Login View)</th>
 								<th>Status</th>
 								<th>Action</th>
 							</tr>
@@ -531,6 +621,28 @@ export default function UserManagement() {
 											?.name || '—'}
 									</td>
 									<td>{scopeSummary(user)}</td>
+									<td>
+										{user.allowed_modules && user.allowed_modules.length > 0 ? (
+											<div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+												{user.allowed_modules.map((modId) => {
+													const p = availableModulePortals.find((item) => item.id === modId);
+													return (
+														<span
+															key={modId}
+															className="pill"
+															style={{ fontSize: '0.75rem', padding: '2px 6px' }}
+														>
+															{p?.icon || '📁'} {p?.title || modId}
+														</span>
+													);
+												})}
+											</div>
+										) : (
+											<span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>
+												Role Default
+											</span>
+										)}
+									</td>
 									<td>{user.active ? 'Active' : 'Disabled'}</td>
 									<td>
 										<button
@@ -547,6 +659,7 @@ export default function UserManagement() {
 													college_scope_ids: user.college_scope_ids ?? [],
 													department_scope_ids: user.department_scope_ids ?? [],
 													course_scope_ids: user.course_scope_ids ?? [],
+													allowed_modules: user.allowed_modules ?? [],
 												});
 												setMessage('');
 											}}
@@ -630,6 +743,48 @@ export default function UserManagement() {
 				<button className="primary" disabled={busy} onClick={saveRoleAccess}>
 					{busy ? 'Saving...' : 'Save role access'}
 				</button>
+			</section>
+			<section className="editgrid" style={{ marginTop: 24, borderTop: '2px solid #e2e8f0', paddingTop: 20 }}>
+				<h3>🌐 Public Landing &amp; Login Page Settings (Login Screen Portal Visibility)</h3>
+				<p style={{ gridColumn: '1 / -1', color: '#475569', margin: '0 0 12px' }}>
+					Configure which modules are visible to non-logged-in visitors on the public landing screen. Modules toggled OFF can only be accessed after signing in with an authorized user account.
+				</p>
+				<div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+					{availableModulePortals.map((portal) => {
+						const currentSetting = portalSettings.find((p) => p.id === portal.id);
+						const isPublic = currentSetting ? Boolean(currentSetting.visible_to_public) : portal.id !== 'super_admin';
+						return (
+							<div
+								key={portal.id}
+								style={{
+									display: 'flex',
+									justifyContent: 'space-between',
+									alignItems: 'center',
+									padding: '12px 16px',
+									background: '#f8fafc',
+									borderRadius: 8,
+									border: '1px solid #cbd5e1',
+								}}
+							>
+								<div>
+									<strong style={{ fontSize: '0.95rem' }}>{portal.icon} {portal.title}</strong>
+									<small style={{ display: 'block', color: '#64748b' }}>
+										{portal.id === 'super_admin' ? 'Administrative Only' : 'Portal ID: ' + portal.id}
+									</small>
+								</div>
+								<label style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 0, fontWeight: 600 }}>
+									<input
+										type="checkbox"
+										checked={isPublic}
+										disabled={busy}
+										onChange={(e) => void savePortalSetting(portal.id, 'visible_to_public', e.target.checked)}
+									/>
+									{isPublic ? 'Publicly Visible' : 'Restricted (Login Req)'}
+								</label>
+							</div>
+						);
+					})}
+				</div>
 			</section>
 			<p className="hint">
 				Invited users set their own passwords through email. Service-role

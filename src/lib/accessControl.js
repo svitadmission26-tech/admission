@@ -9,10 +9,14 @@ export const accessPages = [
 	'Faculty',
 	'Student Management',
 	'Subjects',
+	'Timetable Dashboard',
 	'Timetable Management',
+	'College Timing',
+	'Leave Dashboard',
 	'Leave Management',
 	'Attendance',
 	'Inquiries',
+	'Notice Board',
 	'ID Cards',
 	'Final Admissions',
 	'Applications',
@@ -48,6 +52,15 @@ export const accessPermissions = [
 
 export const pagePermission = (page) => `page:${page}`;
 
+export const availableModulePortals = [
+	{ id: 'college_info', title: 'College information', icon: '🏛️' },
+	{ id: 'admissions', title: 'New Admission Student management', icon: '🎓' },
+	{ id: 'timetable', title: 'Time table', icon: '🕐' },
+	{ id: 'faculty_leave', title: 'Faculty Leave Mangment', icon: '🌴' },
+	{ id: 'student_management', title: 'Student Management', icon: '🧑‍🎓' },
+	{ id: 'super_admin', title: 'Super Admin', icon: '⚙️' },
+];
+
 export const emptyStaffForm = {
 	full_name: '',
 	email: '',
@@ -59,4 +72,5 @@ export const emptyStaffForm = {
 	college_scope_ids: [],
 	department_scope_ids: [],
 	course_scope_ids: [],
+	allowed_modules: [],
 };

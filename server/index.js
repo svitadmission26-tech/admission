@@ -180,6 +180,7 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
 		college_scope_ids: collegeScopeIds,
 		department_scope_ids: departmentScopeIds,
 		course_scope_ids: courseScopeIds,
+		allowed_modules: allowedModules,
 	} = req.body || {};
 	if (
 		typeof email !== 'string' ||
@@ -218,6 +219,7 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
 					college_scope_ids: [...new Set(collegeScopeIds)],
 					department_scope_ids: [...new Set(departmentScopeIds)],
 					course_scope_ids: [...new Set(courseScopeIds)],
+					allowed_modules: Array.isArray(allowedModules) ? [...new Set(allowedModules)] : [],
 				});
 		if (profileError || memberError) {
 			const { error: cleanupError } = await adminClient.auth.admin.deleteUser(userId);
@@ -266,6 +268,7 @@ app.patch('/api/admin/users/:id', requireAdmin, async (req, res) => {
 		college_scope_ids: collegeScopeIds,
 		department_scope_ids: departmentScopeIds,
 		course_scope_ids: courseScopeIds,
+		allowed_modules: allowedModules,
 	} = req.body || {};
 	if (!isUuid(userId))
 		return res.status(400).json({ error: 'User ID must be a valid UUID.' });
@@ -286,6 +289,7 @@ app.patch('/api/admin/users/:id', requireAdmin, async (req, res) => {
 				college_scope_ids: [...new Set(collegeScopeIds)],
 				department_scope_ids: [...new Set(departmentScopeIds)],
 				course_scope_ids: [...new Set(courseScopeIds)],
+				allowed_modules: Array.isArray(allowedModules) ? [...new Set(allowedModules)] : [],
 			})
 			.eq('user_id', userId)
 			.select('user_id')
