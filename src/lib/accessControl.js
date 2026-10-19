@@ -7,6 +7,7 @@ export const accessPages = [
 	'Fee Structures',
 	'Report Builder',
 	'Faculty',
+	'Designation',
 	'Student Management',
 	'Subjects',
 	'Timetable Dashboard',

@@ -1,3 +1,4 @@
+import AdmissionChatbot from './AdmissionChatbot';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabase';
 import { downloadExcel, downloadExcelTemplate, readExcelRows } from '../lib/excel';
@@ -15,7 +16,39 @@ const initialInquiry = {
 	message: '',
 	consent: false,
 	website: '',
+	college_id: '',
+	faculty_id: '',
+	branch_id: '',
+	timing_slot: '',
+	gender: '',
 };
+
+const genderOptions = [
+	{ value: '', label: 'Select gender' },
+	{ value: 'male', label: 'Male (Mr.)' },
+	{ value: 'female', label: 'Female (Ms.)' },
+	{ value: 'other', label: 'Other' },
+];
+
+const titlePrefixMap = { male: 'Mr.', female: 'Ms.', other: '' };
+const titlePrefixes = ['Mr.', 'Ms.', 'Mrs.', 'Miss', 'Dr.', 'Prof.'];
+
+function stripTitlePrefix(name) {
+	let stripped = name.trim();
+	for (const prefix of titlePrefixes) {
+		const lower = prefix.toLowerCase() + ' ';
+		if (stripped.toLowerCase().startsWith(lower)) {
+			stripped = stripped.slice(lower.length).trim();
+		}
+	}
+	return stripped;
+}
+
+function applyTitlePrefix(rawName, gender) {
+	const prefix = titlePrefixMap[gender] ?? '';
+	const stripped = stripTitlePrefix(rawName);
+	return prefix ? `${prefix} ${stripped}` : stripped;
+}
 
 const inquiryStatuses = [
 	'all',
@@ -25,6 +58,18 @@ const inquiryStatuses = [
 	'follow_up',
 	'converted',
 	'closed',
+];
+const departments = [
+	'Degree Engineering',
+	'D2D Engineering',
+	'Dental Medicine',
+	'Nursing',
+	'Pharmacy',
+	'Architecture',
+	'Law',
+	'Management',
+	'Computer Applications',
+	'Other',
 ];
 const inquiryExcelColumns = [
 	{ key: 'student_name', label: 'Student name' },
@@ -39,6 +84,23 @@ const inquiryExcelColumns = [
 	{ key: 'consent', label: 'Consent' },
 ];
 
+const getDepartmentOptions = (colleges) => {
+	const uniqueDepts = [...new Set(colleges.map((c) => c.department).filter(Boolean))];
+	return [...new Set([...departments, ...uniqueDepts])].sort();
+};
+
+const defaultTimingSlots = (() => {
+	const slots = [];
+	for (let hour = 9; hour <= 17; hour += 1) {
+		const displayHour = hour > 12 ? hour - 12 : hour;
+		const ampm = hour >= 12 ? 'PM' : 'AM';
+		const endHour = hour + 1 > 12 ? hour + 1 - 12 : hour + 1;
+		const endAmpm = hour + 1 >= 12 ? 'PM' : 'AM';
+		slots.push(`${displayHour}:00 ${ampm} - ${endHour}:00 ${endAmpm}`);
+	}
+	return slots;
+})();
+
 function errorText(error) {
 	if (error?.code === 'PGRST202' || error?.code === '42883') {
 		return 'Inquiry database functions are missing. Run migrations 005_inquiries.sql through 007_intake_capacity.sql in Supabase in order.';
@@ -49,11 +111,191 @@ function errorText(error) {
 	return error?.message || 'An unexpected error occurred.';
 }
 
+const defaultInquirySections = [
+	{ id: 'general', title: 'General', layout: 'columns' },
+	{ id: 'academic', title: 'Academic interest', layout: 'columns' },
+	{ id: 'contact', title: 'Contact & scheduling', layout: 'columns' },
+];
+const defaultInquiryFields = [
+	{ key: 'student_name', label: 'Student full name', type: 'text', sectionId: 'general', width: 'full', required: true },
+	{ key: 'gender', label: 'Gender', type: 'gender', sectionId: 'general', width: 'half', required: false },
+	{ key: 'mobile', label: 'Mobile number', type: 'tel', sectionId: 'general', width: 'half', required: true, placeholder: '10-digit mobile' },
+	{ key: 'email', label: 'Email address', type: 'email', sectionId: 'general', width: 'half', required: false, placeholder: 'name@example.com' },
+	{ key: 'course_interest', label: 'Interested course', type: 'course', sectionId: 'academic', width: 'half', required: true },
+	{ key: 'branch_interest', label: 'Preferred branch', type: 'branch', sectionId: 'academic', width: 'half', required: false },
+	{ key: 'qualification', label: 'Current qualification', type: 'qualification', sectionId: 'academic', width: 'half', required: false },
+	{ key: 'city', label: 'City', type: 'text', sectionId: 'academic', width: 'half', required: false, placeholder: 'Your city' },
+	{ key: 'college_id', label: 'College', type: 'college', sectionId: 'contact', width: 'half', required: true },
+	{ key: 'faculty_id', label: 'Select branch', type: 'faculty', sectionId: 'contact', width: 'half', required: true },
+	{ key: 'contact_number', label: 'Contact number', type: 'tel', sectionId: 'contact', width: 'half', required: false, placeholder: '10-digit contact number' },
+	{ key: 'timing_slot', label: 'Preferred timing (1-hour slot)', type: 'timing', sectionId: 'contact', width: 'half', required: true },
+	{ key: 'source', label: 'How did you hear about us?', type: 'source', sectionId: 'contact', width: 'full', required: false },
+	{ key: 'message', label: 'Message / questions', type: 'textarea', sectionId: 'contact', width: 'full', required: false },
+	{ key: 'consent', label: 'I agree to be contacted by the SVIT admission team regarding my inquiry.', type: 'consent', sectionId: 'contact', width: 'full', required: true },
+	{ key: 'website', label: 'Website', type: 'text', sectionId: 'contact', width: 'full', required: false, hidden: true },
+];
+
+const qualificationOptions = ['10th', '12th Science', '12th Commerce', 'Diploma', 'Other'];
+const sourceOptions = ['website', 'social_media', 'friend', 'school_visit', 'other'];
+
+function conditionVisible(field, values) {
+	if (!field.visibility || !field.visibility.fieldKey) return true;
+	const actual = String(values?.[field.visibility.fieldKey] ?? '');
+	const expected = String(field.visibility.value ?? '');
+	if (field.visibility.operator === 'not_equals') return actual !== expected;
+	if (field.visibility.operator === 'contains') return actual.includes(expected);
+	return actual === expected;
+}
+
 export function PublicInquiry() {
 	const [form, setForm] = useState(initialInquiry);
 	const [busy, setBusy] = useState(false);
 	const [reference, setReference] = useState('');
 	const [error, setError] = useState('');
+	const [courses, setCourses] = useState([]);
+	const [branches, setBranches] = useState([]);
+	const [colleges, setColleges] = useState([]);
+	const [departments, setDepartments] = useState([]);
+	const [faculties, setFaculties] = useState([]);
+	const [inquiryForms, setInquiryForms] = useState([]);
+	const [selectedForm, setSelectedForm] = useState(null);
+	const [timingOptions, setTimingOptions] = useState([]);
+	const [facultyFilter, setFacultyFilter] = useState({ collegeId: '', department: '' });
+	const [loading, setLoading] = useState(true);
+
+	useEffect(() => {
+		const loadCatalog = async () => {
+			try {
+				const [
+					coursesRes,
+					collegesRes,
+					departmentsRes,
+					formsRes,
+					timingsRes,
+				] = await Promise.all([
+					supabase.from('courses').select('id, name, code').order('name'),
+					supabase.from('colleges').select('id, name').order('name'),
+					supabase.from('departments').select('id, name').order('name'),
+					supabase
+						.from('inquiry_forms')
+						.select('*')
+						.eq('is_active', true)
+						.order('created_at', { ascending: false })
+						.limit(1),
+					supabase.from('college_timings').select('*').eq('active', true),
+				]);
+				if (coursesRes.error) console.error('Courses:', coursesRes.error);
+				else setCourses(coursesRes.data ?? []);
+				if (collegesRes.error) console.error('Colleges:', collegesRes.error);
+				else setColleges(collegesRes.data ?? []);
+				if (departmentsRes.error) console.error('Departments:', departmentsRes.error);
+				else setDepartments(departmentsRes.data ?? []);
+				if (formsRes.error) console.error('Inquiry forms:', formsRes.error);
+				else {
+					const forms = formsRes.data ?? [];
+					setInquiryForms(forms);
+					if (forms.length > 0) setSelectedForm(forms[0]);
+				}
+				if (timingsRes.error) console.error('College timings:', timingsRes.error);
+				else {
+					const timings = timingsRes.data ?? [];
+					const slots = [...new Set(
+						timings
+							.map((t) => {
+								if (!t.opens_at || !t.closes_at) return null;
+								const fmt = (d) => {
+									const h = Number(d.toString().slice(0, 2));
+									const m = d.toString().slice(3, 5);
+									const ampm = h >= 12 ? 'PM' : 'AM';
+									const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
+									return `${display}:${m} ${ampm}`;
+								};
+								return `${fmt(t.opens_at)} - ${fmt(t.closes_at)}`;
+							})
+							.filter(Boolean),
+					)];
+					setTimingOptions(slots);
+				}
+			} catch (err) {
+				console.error('Failed to load catalog:', err);
+			} finally {
+				setLoading(false);
+			}
+		};
+		loadCatalog();
+	}, []);
+
+	const effectiveSections = selectedForm?.sections && selectedForm.sections.length
+		? selectedForm.sections
+		: defaultInquirySections;
+	const effectiveFields = selectedForm?.fields && selectedForm.fields.length
+		? selectedForm.fields
+		: defaultInquiryFields;
+
+	useEffect(() => {
+		// Load branches when course changes
+		const loadBranches = async () => {
+			if (!form.course_interest) {
+				setBranches([]);
+				return;
+			}
+			try {
+				const { data, error } = await supabase
+					.from('branches')
+					.select('id, name, intake')
+					.eq('course_id', form.course_interest)
+					.order('name');
+				if (error) throw error;
+				setBranches(data ?? []);
+			} catch (err) {
+				console.error('Failed to load branches:', err);
+				setBranches([]);
+			}
+		};
+		loadBranches();
+	}, [form.course_interest]);
+
+	useEffect(() => {
+		// Load branches when college or department changes
+		const loadBranchesAndFaculties = async () => {
+			setFaculties([]);
+			setBranches([]);
+			if (!form.college_id) {
+				return;
+			}
+			try {
+				// Load branches for the selected course if available
+				let branches = [];
+				if (form.course_interest) {
+					const { data, error } = await supabase
+						.from('branches')
+						.select('id, name, intake')
+						.eq('course_id', form.course_interest)
+						.order('name');
+					if (error) console.error('Branches error:', error);
+					else branches = data ?? [];
+				}
+				setBranches(branches);
+				
+				// Load faculties filtered by college
+				const { data, error } = await supabase.rpc('get_faculties_for_inquiry', {
+					p_college_id: form.college_id,
+					p_department: '',
+				});
+				if (error) console.error('Faculties error:', error);
+				else setFaculties(data ?? []);
+			} catch (err) {
+				console.error('Failed to load branches/faculties:', err);
+			}
+		};
+		loadBranchesAndFaculties();
+	}, [form.college_id, form.course_interest]);
+
+	useEffect(() => {
+		if (form.college_id && selectedCollegeTiming.length > 0) {
+			setTimingOptions([]);
+		}
+	}, [form.college_id]);
 
 	async function submit(event) {
 		event.preventDefault();
@@ -78,8 +320,280 @@ export function PublicInquiry() {
 		}
 	}
 
+	function setFieldValue(key, value) {
+		setForm((prev) => {
+			const next = { ...prev, [key]: value };
+			// Reset dependent selections when their parent changes
+			if (key === 'course_interest') {
+				next.branch_interest = '';
+				next.course_id = '';
+				next.branch_id = '';
+			}
+			if (key === 'college_id') {
+				next.faculty_id = '';
+				next.timing_slot = '';
+			}
+			if (key === 'faculty_id') {
+				// Map branch selection to branch_id
+				next.branch_id = value;
+			}
+			if (key === 'gender') {
+				next.student_name = applyTitlePrefix(prev.student_name, value);
+			}
+			return next;
+		});
+	}
+
+	function fieldOptionsFor(field) {
+		switch (field.type) {
+			case 'college':
+				return colleges.map((college) => ({
+					value: college.id,
+					label: college.name,
+				}));
+			case 'course':
+				return courses.map((course) => ({
+					value: course.id,
+					label: course.code ? `${course.name} (${course.code})` : course.name,
+				}));
+			case 'branch':
+				return branches.map((branch) => ({
+					value: branch.id,
+					label: branch.intake
+						? `${branch.name} (intake: ${branch.intake})`
+						: branch.name,
+				}));
+case 'department': {
+			const options = new Map();
+			departments.forEach((dept) => options.set(dept.name, dept.name));
+			// Include contact_number in display for departments from colleges
+			colleges.forEach((college) => {
+				if (college.department) options.set(college.department, college.department);
+			});
+			return [...options.values()]
+				.sort((a, b) => a.localeCompare(b))
+				.map((name) => ({ value: name, label: name }));
+		}
+			case 'faculty':
+				return [...branches]
+					.sort((a, b) => a.name.localeCompare(b.name))
+					.map((branch) => ({
+						value: branch.id,
+						label: branch.intake
+							? `${branch.name} (intake: ${branch.intake})`
+							: branch.name,
+					}));
+			case 'timing': {
+				const slots = timingOptions.length ? timingOptions : defaultTimingSlots;
+				return slots.map((slot) => ({ value: slot, label: slot }));
+			}
+			case 'gender':
+				return genderOptions.map((option) => ({
+					value: option.value,
+					label: option.label,
+				}));
+			case 'source':
+				return sourceOptions.map((option) => ({
+					value: option,
+					label: option.replaceAll('_', ' '),
+				}));
+			case 'qualification':
+				return qualificationOptions.map((option) => ({
+					value: option,
+					label: option,
+				}));
+			case 'select':
+			case 'radio':
+				return (field.options ?? []).map((option) => ({
+					value: option,
+					label: option,
+				}));
+			default:
+				return [];
+		}
+	}
+
+	function renderField(field) {
+		if (field.hidden) return null;
+		if (!conditionVisible(field, form)) return null;
+		const value = form[field.key] ?? '';
+		const required = Boolean(field.required);
+		const width = field.width || 'full';
+		const label = field.label || field.key;
+
+		if (field.type === 'consent') {
+			return (
+				<label className="inquiry-consent" key={field.key}>
+					<input
+						type="checkbox"
+						required={required}
+						checked={Boolean(form[field.key])}
+						onChange={(event) => setFieldValue(field.key, event.target.checked)}
+					/>
+					<span>
+						{label}
+						{required ? ' *' : ''}
+					</span>
+				</label>
+			);
+		}
+
+		if (field.type === 'radio') {
+			return (
+				<label className={`inquiry-field width-${width}`} key={field.key}>
+					{label}
+					{required ? ' *' : ''}
+					<span className="inquiry-radio-group">
+						{fieldOptionsFor(field).map((option) => (
+							<span key={option.value}>
+								<input
+									type="radio"
+									name={field.key}
+									value={option.value}
+									required={required}
+									checked={value === option.value}
+									onChange={(event) => setFieldValue(field.key, event.target.value)}
+								/>
+								{option.label}
+							</span>
+						))}
+					</span>
+				</label>
+			);
+		}
+
+		if (field.type === 'checkbox') {
+			return (
+				<label className={`inquiry-field width-${width}`} key={field.key}>
+					<span className="inquiry-check-row">
+						<input
+							type="checkbox"
+							required={required}
+							checked={Boolean(form[field.key])}
+							onChange={(event) => setFieldValue(field.key, event.target.checked)}
+						/>
+						{label}
+						{required ? ' *' : ''}
+					</span>
+				</label>
+			);
+		}
+
+		if (field.type === 'textarea') {
+			return (
+				<label className={`inquiry-field width-${width}`} key={field.key}>
+					{label}
+					{required ? ' *' : ''}
+					<textarea
+						rows={3}
+						maxLength={1500}
+						required={required}
+						value={value}
+						placeholder={field.placeholder || ''}
+						onChange={(event) => setFieldValue(field.key, event.target.value)}
+					/>
+				</label>
+			);
+		}
+
+		const dynamicTypes = [
+			'college',
+			'course',
+			'branch',
+			'department',
+			'faculty',
+			'timing',
+			'gender',
+			'source',
+			'qualification',
+			'select',
+		];
+		if (dynamicTypes.includes(field.type)) {
+			const options = fieldOptionsFor(field);
+			const isNameField = field.key === 'student_name';
+			if (isNameField) {
+				return (
+					<label className={`inquiry-field width-${width}`} key={field.key}>
+						{label}
+						{required ? ' *' : ''}
+						<div className="inquiry-name-wrapper">
+							{form.gender && form.student_name ? (
+								<span className="inquiry-title-badge">{titlePrefixMap[form.gender]}</span>
+							) : null}
+							<input
+								required={required}
+								maxLength={120}
+								value={value}
+								placeholder={field.placeholder || 'Enter your full name'}
+								onChange={(event) => setFieldValue(field.key, event.target.value)}
+							/>
+						</div>
+					</label>
+				);
+			}
+			return (
+				<label className={`inquiry-field width-${width}`} key={field.key}>
+					{label}
+					{required ? ' *' : ''}
+					<select
+						required={required}
+						value={value}
+						onChange={(event) => setFieldValue(field.key, event.target.value)}
+					>
+						<option value="">Select {label.toLowerCase()}</option>
+						{options.map((option) => (
+							<option key={option.value} value={option.value}>
+								{option.label}
+							</option>
+						))}
+					</select>
+				</label>
+			);
+		}
+
+		const inputType = ['email', 'number', 'date', 'tel', 'url'].includes(field.type)
+			? field.type
+			: 'text';
+		return (
+			<label className={`inquiry-field width-${width}`} key={field.key}>
+				{label}
+				{required ? ' *' : ''}
+				<input
+					type={inputType}
+					required={required}
+					maxLength={field.type === 'tel' ? 10 : 254}
+					inputMode={field.type === 'tel' ? 'numeric' : undefined}
+					pattern={field.type === 'tel' ? '[6-9][0-9]{9}' : undefined}
+					value={value}
+					placeholder={field.placeholder || ''}
+					onChange={(event) => setFieldValue(field.key, event.target.value)}
+				/>
+			</label>
+		);
+	}
+
+	function renderFieldSection(section, sectionFields) {
+		const visibleFields = sectionFields.filter(
+			(field) => !field.hidden && conditionVisible(field, form),
+		);
+		if (!visibleFields.length) return null;
+		if (section.layout === 'vertical' || visibleFields.every((f) => (f.width || 'full') === 'full')) {
+			return (
+				<div className="inquiry-fields-grid">
+					{visibleFields.map((field) => renderField(field))}
+				</div>
+			);
+		}
+		return (
+			<div className="inquiry-fields-grid">
+				{visibleFields.map((field) => renderField(field))}
+			</div>
+		);
+	}
+
 	return (
 		<div className="inquiry-public">
+            <AdmissionChatbot />
 			<section className="inquiry-hero">
 				<a className="inquiry-mark" href="/" aria-label="SVIT home">
 					S
@@ -94,13 +608,15 @@ export function PublicInquiry() {
 					Admission guidance · Course information · Follow-up support
 				</div>
 			</section>
-			<section className="inquiry-form-wrap">
+			<section id="inquiry-form" className="inquiry-form-wrap">
 				<div className="inquiry-form-head">
 					<small>ADMISSION ENQUIRY</small>
 					<h2>Get in touch</h2>
 					<p>Fields marked * are required.</p>
 				</div>
-				{reference ? (
+			{loading ? (
+					<div className="inquiry-loading">Loading form…</div>
+				) : reference ? (
 					<div className="inquiry-confirm" role="status">
 						<h2>Thank you!</h2>
 						<p>Your inquiry has been received. Save this reference number:</p>
@@ -112,155 +628,20 @@ export function PublicInquiry() {
 					</div>
 				) : (
 					<form className="inquiry-form" onSubmit={submit}>
-						<label>
-							Student full name *
-							<input
-								required
-								maxLength={120}
-								value={form.student_name}
-								onChange={(event) =>
-									setForm({ ...form, student_name: event.target.value })
-								}
-								placeholder="Enter your full name"
-							/>
-						</label>
-						<div className="inquiry-pair">
-							<label>
-								Mobile number *
-								<input
-									required
-									inputMode="numeric"
-									pattern="[6-9][0-9]{9}"
-									maxLength={10}
-									value={form.mobile}
-									onChange={(event) =>
-										setForm({ ...form, mobile: event.target.value })
-									}
-									placeholder="10-digit mobile"
-								/>
-							</label>
-							<label>
-								Email address
-								<input
-									type="email"
-									maxLength={254}
-									value={form.email}
-									onChange={(event) =>
-										setForm({ ...form, email: event.target.value })
-									}
-									placeholder="name@example.com"
-								/>
-							</label>
-						</div>
-						<div className="inquiry-pair">
-							<label>
-								Interested course *
-								<select
-									required
-									value={form.course_interest}
-									onChange={(event) =>
-										setForm({ ...form, course_interest: event.target.value })
-									}
-								>
-									<option value="">Select course</option>
-									{[
-										'Diploma Engineering',
-										'Degree Engineering',
-										'D2D Engineering',
-										'Other',
-									].map((course) => (
-										<option key={course} value={course}>
-											{course}
-										</option>
-									))}
-								</select>
-							</label>
-							<label>
-								Preferred branch
-								<input
-									maxLength={120}
-									value={form.branch_interest}
-									onChange={(event) =>
-										setForm({ ...form, branch_interest: event.target.value })
-									}
-									placeholder="e.g. Computer Engineering"
-								/>
-							</label>
-						</div>
-						<div className="inquiry-pair">
-							<label>
-								Current qualification
-								<select
-									value={form.qualification}
-									onChange={(event) =>
-										setForm({ ...form, qualification: event.target.value })
-									}
-								>
-									<option value="">Select qualification</option>
-									{['10th', '12th Science', '12th Commerce', 'Diploma', 'Other'].map(
-										(qualification) => (
-											<option key={qualification} value={qualification}>
-												{qualification}
-											</option>
-										),
-									)}
-								</select>
-							</label>
-							<label>
-								City
-								<input
-									maxLength={120}
-									value={form.city}
-									onChange={(event) =>
-										setForm({ ...form, city: event.target.value })
-									}
-									placeholder="Your city"
-								/>
-							</label>
-						</div>
-						<label>
-							How did you hear about us?
-							<select
-								value={form.source}
-								onChange={(event) =>
-									setForm({ ...form, source: event.target.value })
-								}
-							>
-								{['website', 'social_media', 'friend', 'school_visit', 'other'].map(
-									(source) => (
-										<option key={source} value={source}>
-											{source.replaceAll('_', ' ')}
-										</option>
-									),
-								)}
-							</select>
-						</label>
-						<label>
-							Message / questions
-							<textarea
-								maxLength={1500}
-								rows={3}
-								value={form.message}
-								onChange={(event) =>
-									setForm({ ...form, message: event.target.value })
-								}
-								placeholder="Tell us what you would like to know..."
-							/>
-						</label>
-						<label className="inquiry-consent">
-							<input
-								type="checkbox"
-								required
-								checked={form.consent}
-								onChange={(event) =>
-									setForm({ ...form, consent: event.target.checked })
-								}
-							/>
-							<span>
-								I agree to be contacted by the SVIT admission team regarding my
-								inquiry. *
-							</span>
-						</label>
+						{effectiveSections.map((section) => {
+							const sectionFields = effectiveFields.filter(
+								(field) => (field.sectionId || 'general') === section.id,
+							);
+							if (!sectionFields.length) return null;
+							return (
+								<div className="inquiry-section" key={section.id}>
+									{section.title ? (
+										<h3 className="inquiry-section-title">{section.title}</h3>
+									) : null}
+									{renderFieldSection(section, sectionFields)}
+								</div>
+							);
+						})}
 						<div className="inquiry-hp" aria-hidden="true">
 							<label>
 								Website
@@ -303,21 +684,61 @@ export function InquiryDashboard({ canManage = true }) {
 	const [history, setHistory] = useState([]);
 	const [filter, setFilter] = useState('all');
 	const [search, setSearch] = useState('');
+	const [colleges, setColleges] = useState([]);
+	const [facultyList, setFacultyList] = useState([]);
+	const [students, setStudents] = useState([]);
+	const [filterCollege, setFilterCollege] = useState('');
+	const [filterDepartment, setFilterDepartment] = useState('');
+	const [filterFaculty, setFilterFaculty] = useState('');
 	const [note, setNote] = useState({
 		contact_mode: 'call',
 		outcome: '',
 		next_follow_up_at: '',
 		status: 'follow_up',
+		faculty_id: '',
 	});
 	const [busy, setBusy] = useState(false);
 	const [message, setMessage] = useState('');
 	const [loading, setLoading] = useState(true);
 
+	useEffect(() => {
+		(async () => {
+			const [collegesRes, studentsRes] = await Promise.all([
+				supabase.from('colleges').select('id, name').order('name'),
+				supabase.from('students').select('id, enrollment, name, course, semester').order('name').limit(500),
+			]);
+			if (collegesRes.error) setMessage(errorText(collegesRes.error));
+			else setColleges(collegesRes.data ?? []);
+			if (studentsRes.error) setMessage(errorText(studentsRes.error));
+			else setStudents(studentsRes.data ?? []);
+		})();
+	}, []);
+
+	useEffect(() => {
+		const loadFaculty = async () => {
+			if (!filterCollege) {
+				setFacultyList([]);
+				setFilterFaculty(''); // Reset faculty filter when college changes
+				return;
+			}
+			const { data, error } = await supabase.rpc('get_faculties_for_inquiry', {
+				p_college_id: filterCollege,
+				p_department: filterDepartment,
+			});
+			if (error) {
+				setMessage(errorText(error));
+				return;
+			}
+			setFacultyList(data ?? []);
+		};
+		void loadFaculty();
+	}, [filterCollege, filterDepartment]);
+
 	async function load() {
 		try {
 			const { data, error } = await supabase
 				.from('inquiries')
-				.select('*')
+				.select('*, colleges(name), profiles(name), students(name, enrollment)')
 				.order('created_at', { ascending: false })
 				.limit(500);
 			if (error) {
@@ -364,6 +785,15 @@ export function InquiryDashboard({ canManage = true }) {
 		setBusy(true);
 		setMessage('');
 		try {
+			// First, update the inquiry with faculty assignment if changed
+			if (note.faculty_id || note.faculty_id === '') {
+				const { error: facultyError } = await supabase
+					.from('inquiries')
+					.update({ faculty_id: note.faculty_id === '' ? null : note.faculty_id })
+					.eq('id', selected.id);
+				if (facultyError) throw facultyError;
+			}
+			// Save follow-up
 			const { error } = await supabase.rpc('add_inquiry_followup', {
 				p_inquiry_id: selected.id,
 				p_contact_mode: note.contact_mode,
@@ -380,6 +810,7 @@ export function InquiryDashboard({ canManage = true }) {
 				outcome: '',
 				next_follow_up_at: '',
 				status: 'follow_up',
+				faculty_id: '',
 			});
 			await load();
 			const { data, error: historyError } = await supabase
@@ -409,9 +840,13 @@ export function InquiryDashboard({ canManage = true }) {
 						row.city,
 					])
 						.toLowerCase()
-						.includes(search.toLowerCase()),
+						.includes(search.toLowerCase()) &&
+					(filterCollege === '' || row.college_id === filterCollege) &&
+					(filterDepartment === '' ||
+						(row.department ?? '') === filterDepartment) &&
+					(filterFaculty === '' || row.faculty_id === filterFaculty),
 			),
-		[rows, filter, search],
+		[rows, filter, search, filterCollege, filterDepartment, filterFaculty],
 	);
 	const dueCount = rows.filter(
 		(row) =>
@@ -435,6 +870,10 @@ export function InquiryDashboard({ canManage = true }) {
 					{ key: 'qualification', label: 'Qualification' },
 					{ key: 'city', label: 'City' },
 					{ key: 'source', label: 'Source' },
+					{ key: 'college', label: 'College' },
+					{ key: 'department', label: 'Department' },
+					{ key: 'faculty', label: 'Faculty' },
+					{ key: 'timing_slot', label: 'Timing slot' },
 					{ key: 'status', label: 'Status' },
 					{ key: 'next_follow_up_at', label: 'Next follow-up' },
 					{ key: 'created_at', label: 'Created at' },
@@ -576,6 +1015,42 @@ export function InquiryDashboard({ canManage = true }) {
 								</option>
 							))}
 						</select>
+						<select
+							aria-label="Filter by college"
+							value={filterCollege}
+							onChange={(event) => setFilterCollege(event.target.value)}
+						>
+							<option value="">All colleges</option>
+							{[...colleges].sort((a, b) => a.name.localeCompare(b.name)).map((college) => (
+								<option key={college.id} value={college.id}>
+									{college.name}
+								</option>
+							))}
+						</select>
+						<select
+							aria-label="Filter by department"
+							value={filterDepartment}
+							onChange={(event) => setFilterDepartment(event.target.value)}
+						>
+							<option value="">All departments</option>
+							{getDepartmentOptions(colleges).map((dept) => (
+								<option key={dept} value={dept}>
+									{dept}
+								</option>
+							))}
+						</select>
+						<select
+							aria-label="Filter by faculty"
+							value={filterFaculty}
+							onChange={(event) => setFilterFaculty(event.target.value)}
+						>
+							<option value="">All faculty</option>
+							{[...facultyList].sort((a, b) => a.name.localeCompare(b.name)).map((faculty) => (
+								<option key={faculty.id} value={faculty.id}>
+									{faculty.name} ({faculty.designation})
+								</option>
+							))}
+						</select>
 						<button type="button" onClick={() => void load()}>
 							Refresh
 						</button>
@@ -618,6 +1093,10 @@ export function InquiryDashboard({ canManage = true }) {
 									'Student',
 									'Mobile',
 									'Course',
+									'College',
+									'Department',
+									'Faculty',
+									'Timing',
 									'Status',
 									'Next follow-up',
 									'Action',
@@ -633,6 +1112,10 @@ export function InquiryDashboard({ canManage = true }) {
 									<td>{row.student_name}</td>
 									<td>{row.mobile}</td>
 									<td>{row.course_interest}</td>
+									<td>{row.colleges?.name || '—'}</td>
+									<td>{row.department || '—'}</td>
+									<td>{row.profiles?.name || row.faculty?.name || '—'}</td>
+									<td>{row.timing_slot || '—'}</td>
 									<td>
 										<span className="pill">{row.status.replaceAll('_', ' ')}</span>
 									</td>
@@ -674,6 +1157,9 @@ export function InquiryDashboard({ canManage = true }) {
 					</div>
 					<div className="inquiry-details">
 						<p>
+							<b>Student:</b> {selected.students?.name || '—'} ({selected.students?.enrollment || '—'})
+						</p>
+						<p>
 							<b>Mobile:</b> {selected.mobile}
 						</p>
 						<p>
@@ -693,6 +1179,18 @@ export function InquiryDashboard({ canManage = true }) {
 						</p>
 						<p>
 							<b>Source:</b> {selected.source}
+						</p>
+						<p>
+							<b>College:</b> {selected.colleges?.name || '—'}
+						</p>
+						<p>
+							<b>Department:</b> {selected.department || '—'}
+						</p>
+						<p>
+							<b>Handling faculty:</b> {selected.profiles?.name || '—'}
+						</p>
+						<p>
+							<b>Preferred timing:</b> {selected.timing_slot || '—'}
 						</p>
 						<p>
 							<b>Message:</b> {selected.message || '—'}
@@ -742,16 +1240,22 @@ export function InquiryDashboard({ canManage = true }) {
 								/>
 							</label>
 							<label>
-								Outcome / notes
-								<textarea
-									required
-									minLength={2}
-									maxLength={1000}
-									value={note.outcome}
+								Assign faculty
+								<select
+									value={note.faculty_id || ''}
 									onChange={(event) =>
-										setNote({ ...note, outcome: event.target.value })
+										setNote({ ...note, faculty_id: event.target.value })
 									}
-								/>
+								>
+									<option value="">Select faculty</option>
+									{canManage && facultyList.length > 0
+										? facultyList.sort((a, b) => a.name.localeCompare(b.name)).map((f) => (
+												<option key={f.id} value={f.id}>
+													{f.name} ({f.designation}) · {f.department}
+												</option>
+											))
+										: []}
+								</select>
 							</label>
 							<button className="primary" disabled={busy}>
 								{busy ? 'Saving...' : 'Save follow-up'}

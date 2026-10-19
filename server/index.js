@@ -1,3 +1,4 @@
+import { registerAdmissionExtras } from './admissionExtras.js';
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -314,6 +315,8 @@ app.patch('/api/admin/users/:id', requireAdmin, async (req, res) => {
 		return res.status(500).json({ error: 'Staff access update failed.' });
 	}
 });
+
+if (adminClient) registerAdmissionExtras(app, adminClient, requireAdmin, isUuid);
 
 app.listen(Number(process.env.PORT || 3001), () =>
 	console.log('API listening'),

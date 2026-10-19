@@ -97,7 +97,7 @@ export default function UserManagement() {
 				includesFaculty
 					? supabase
 							.from('faculty')
-							.select('id,name,code')
+							.select('id,name,code,branch_id,course_id,college_id,designation,contact_number,email')
 							.eq('active', true)
 							.order('name')
 					: Promise.resolve({ data: [], error: null }),
@@ -220,8 +220,11 @@ export default function UserManagement() {
 					...user,
 					full_name: user.profiles?.full_name || '',
 					department: user.departments?.name || '',
-					faculty:
-						faculty.find((member) => member.id === user.faculty_id)?.name || '',
+					faculty: (() => {
+						const member = faculty.find((m) => m.id === user.faculty_id);
+						if (!member) return '';
+						return `${member.name}${member.email ? ` (${member.email})` : ''}`;
+					})(),
 				})),
 			});
 		} catch (error) {
@@ -434,6 +437,7 @@ export default function UserManagement() {
 								{faculty.map((member) => (
 									<option key={member.id} value={member.id}>
 										{member.name} {member.code ? `(${member.code})` : ''}
+										{member.contact_number ? ` · ${member.contact_number}` : ''}
 									</option>
 								))}
 							</select>

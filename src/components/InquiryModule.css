@@ -218,6 +218,24 @@
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
 }
+.inquiry-name-wrapper {
+	position: relative;
+	display: flex;
+	align-items: center;
+}
+.inquiry-title-badge {
+	position: absolute;
+	left: 12px;
+	top: 50%;
+	transform: translateY(-50%);
+	color: #1459b5;
+	font-size: 12px;
+	font-weight: 700;
+	pointer-events: none;
+}
+.inquiry-name-wrapper input {
+	padding-left: 44px !important;
+}
 @media (max-width: 520px) {
 	.inquiry-pair,
 	.inquiry-details {

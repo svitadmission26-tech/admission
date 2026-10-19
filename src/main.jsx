@@ -88,6 +88,7 @@ const modules = [
 	['Bus Seva QR Config', '\u{1F68D}'],
 	['Notice Board', '\u{1F4E2}'],
 	['Faculty', '\u{1F9D1}\u200D\u{1F3EB}'],
+	['Designation', '\u{1F4BC}'],
 	['Student Management', '\u{1F9D1}\u200D\u{1F393}'],
 	['Subjects', '\u{1F4D8}'],
 	['Timetable Dashboard', '\u{1F4CA}'],
@@ -123,6 +124,7 @@ const moduleCards = [
 			'Courses',
 			'Branches',
 			'Academic Calendar',
+			'Designation',
 			'Faculty',
 		],
 	},
@@ -221,6 +223,7 @@ const superAdminModules = [
 			'Courses',
 			'Branches',
 			'Academic Calendar',
+			'Designation',
 			'Faculty',
 		],
 	},
@@ -346,8 +349,8 @@ const meta = {
 			'name',
 			'code',
 			'enrollment_code',
-			'course_id',
 			'college_id',
+			'course_id',
 			'intake',
 			'intake_heads',
 			'active',
@@ -394,9 +397,10 @@ const meta = {
 			'fields',
 		],
 	],
+	Designation: ['designations', ['name', 'active']],
 	Faculty: [
 		'faculty',
-		['code', 'name', 'college_id', 'department', 'designation', 'active'],
+		['code', 'name', 'college_id', 'course_id', 'branch_id', 'designation', 'contact_number', 'email', 'active'],
 	],
 	'Student Management': [
 		'students',
@@ -522,6 +526,28 @@ const referenceTables = {
 	department_id: 'departments',
 	form_type_id: 'form_types',
 	fee_scheme_id: 'fee_schemes',
+	branch_id: 'branches',
+};
+// Columns that keep a label instead of a UUID. The choices are read from a
+// reference table, but the record stores the text value.
+const textReferenceTables = {
+	designation: 'designations',
+};
+// Extra columns fetched for reference tables so that dependent reference
+// fields (college -> course -> branch) can be cascaded and validated.
+const referenceSelectColumns = {
+	course_id: 'id,name,college_id,active',
+	branch_id: 'id,name,course_id,college_id,active',
+};
+// Reference columns list the linked record name, so the heading names the
+// record instead of the column.
+const fieldHeadings = {
+	college_id: 'College',
+	course_id: 'Course',
+	branch_id: 'Branch',
+	department_id: 'Department',
+	form_type_id: 'Form Type',
+	fee_scheme_id: 'Fee Scheme',
 };
 const excelReferenceColumns = {
 	college_id: {
@@ -544,6 +570,10 @@ const excelReferenceColumns = {
 		table: 'fee_schemes',
 		matchColumns: ['name'],
 	},
+	branch_id: {
+		table: 'branches',
+		matchColumns: ['name', 'code'],
+	},
 };
 const excelImportTables = new Set([
 	'universities',
@@ -563,6 +593,30 @@ const money = (n) =>
 		minimumFractionDigits: 2,
 		maximumFractionDigits: 2,
 	});
+// Text reference choices keep the current value selectable even when it is no
+// longer part of the reference list, so editing an old record never clears it.
+function textReferenceNames(options, currentValue) {
+	const names = (options ?? []).map((option) => option.name);
+	const value = String(currentValue ?? '').trim();
+	if (
+		value &&
+		!names.some((name) => String(name).toLowerCase() === value.toLowerCase())
+	) {
+		names.push(value);
+	}
+	return names;
+}
+// Keep the saved reference selectable even when it falls outside the filtered
+// list, so an inconsistent record can still be opened and corrected.
+function includeCurrentReference(options, allOptions, currentValue) {
+	const list = options ?? [];
+	if (!currentValue || list.some((option) => option.id === currentValue))
+		return list;
+	const match = (allOptions ?? []).find((option) => option.id === currentValue);
+	return match
+		? [...list, match]
+		: [...list, { id: currentValue, name: currentValue }];
+}
 
 function conditionMatches(condition, values) {
 	if (!condition?.fieldKey) return true;
@@ -756,15 +810,19 @@ function App() {
 		admin ||
 		hasPermission('masters.manage') ||
 		(canManageAcademics &&
-			['Student Management', 'Faculty', 'Subjects'].includes(page));
+			['Student Management', 'Faculty', 'Subjects', 'Designation'].includes(
+				page,
+			));
 	const canReadCurrentMaster =
 		admin ||
 		(canAccessPage(page) &&
 			(page === 'Student Management'
 				? canReadStudentRoster
-				: page === 'Merit Entries'
-					? hasPermission('merit.read') || hasPermission('merit.manage')
-					: canReadAcademics || hasPermission('applications.read')));
+				: page === 'Designation'
+					? canReadAcademics || hasPermission('masters.manage')
+					: page === 'Merit Entries'
+						? hasPermission('merit.read') || hasPermission('merit.manage')
+						: canReadAcademics || hasPermission('applications.read')));
 	const allowedPortals = new Set([
 		...(admin ? moduleCards.map((card) => card.id) : []),
 		...((userAllowedModules && userAllowedModules.length > 0)
@@ -792,6 +850,30 @@ function App() {
 	]);
 	const table = meta[page]?.[0];
 	const fields = meta[page]?.[1];
+	// Faculty records keep college, course and branch in step: the course must
+	// belong to the college and the branch must belong to the course. When the
+	// parent column is not available the list is left unfiltered instead of
+	// hiding every option.
+	const coursesCarryCollege = (referenceOptions.course_id ?? []).some(
+		(course) => 'college_id' in course,
+	);
+	const branchesCarryCourse = (referenceOptions.branch_id ?? []).some(
+		(branch) => 'course_id' in branch,
+	);
+	const facultyCourseOptions = () => {
+		const courses = referenceOptions.course_id ?? [];
+		if (!coursesCarryCollege) return courses;
+		return courses.filter(
+			(course) => !form.college_id || course.college_id === form.college_id,
+		);
+	};
+	const facultyBranchOptions = () => {
+		const branches = referenceOptions.branch_id ?? [];
+		if (!branchesCarryCourse) return branches;
+		return branches.filter(
+			(branch) => !form.course_id || branch.course_id === form.course_id,
+		);
+	};
 	async function loadProfile(user) {
 		if (!user) {
 			P(null);
@@ -858,16 +940,46 @@ function App() {
 	useEffect(() => {
 		let cancelled = false;
 		async function loadReferences() {
-			const keys = [...new Set((fields ?? []).filter((key) => referenceTables[key]))];
+			const keys = [
+				...new Set(
+					(fields ?? []).filter(
+						(key) => referenceTables[key] || textReferenceTables[key],
+					),
+				),
+			];
 			try {
 				const entries = await Promise.all(
 					keys.map(async (key) => {
-						const { data, error } = await supabase
-							.from(referenceTables[key])
-							.select('id,name')
+						const tableName =
+							referenceTables[key] ?? textReferenceTables[key];
+						const isTextReference = Boolean(textReferenceTables[key]);
+						const columns = isTextReference
+							? 'id,name,active'
+							: (referenceSelectColumns[key] ?? 'id,name');
+						let result = await supabase
+							.from(tableName)
+							.select(columns)
 							.order('name');
-						if (error) throw error;
-						return [key, data ?? []];
+						if (result.error && columns !== 'id,name') {
+							// Older databases may not have the extra columns yet.
+							result = await supabase
+								.from(tableName)
+								.select('id,name')
+								.order('name');
+						}
+						if (result.error) {
+							E(
+								`Could not load ${tableName} reference records: ${result.error.message}`,
+							);
+							return [key, []];
+						}
+						const rows = result.data ?? [];
+						return [
+							key,
+							isTextReference
+								? rows.filter((row) => row.active !== false)
+								: rows,
+						];
 					}),
 				);
 				if (!cancelled) setReferenceOptions(Object.fromEntries(entries));
@@ -880,7 +992,11 @@ function App() {
 					);
 			}
 		}
-		if (session && profile && fields?.some((key) => referenceTables[key]))
+		if (
+			session &&
+			profile &&
+			fields?.some((key) => referenceTables[key] || textReferenceTables[key])
+		)
 			void loadReferences();
 		else setReferenceOptions({});
 		return () => {
@@ -1261,6 +1377,49 @@ function App() {
 		e.preventDefault();
 		E('');
 		let data = { ...form };
+		if (table === 'faculty') {
+			const course = (referenceOptions.course_id ?? []).find(
+				(item) => item.id === data.course_id,
+			);
+			const branch = (referenceOptions.branch_id ?? []).find(
+				(item) => item.id === data.branch_id,
+			);
+			if (
+				data.college_id &&
+				data.course_id &&
+				course &&
+				course.college_id !== data.college_id
+			) {
+				E('The selected course does not belong to the selected college.');
+				return;
+			}
+			if (
+				data.course_id &&
+				data.branch_id &&
+				branch &&
+				branch.course_id !== data.course_id
+			) {
+				E('The selected branch does not belong to the selected course.');
+				return;
+			}
+		}
+		if (table === 'designations') {
+			const name = String(data.name ?? '').trim();
+			if (name.length < 2) {
+				E('Enter a designation name with at least two characters.');
+				return;
+			}
+			const duplicate = rows.some(
+				(row) =>
+					row.id !== editing &&
+					String(row.name ?? '').trim().toLowerCase() === name.toLowerCase(),
+			);
+			if (duplicate) {
+				E('This designation already exists.');
+				return;
+			}
+			data.name = name;
+		}
 		if (table === 'branches') {
 			let heads = data.intake_heads ?? [];
 			if (typeof heads === 'string') {
@@ -2787,7 +2946,7 @@ function App() {
 												? 'Government Intake Headings & Seats'
 												: k === 'intake' && page === 'Branches'
 													? 'Total Branch Intake (Government Sanctioned)'
-											: k.replaceAll('_', ' ')}
+											: fieldHeadings[k] ?? k.replaceAll('_', ' ')}
 										{page === 'Branches' && k === 'intake_heads' ? (
 											<div className="branch-intake-heads">
 												<p>
@@ -2899,6 +3058,79 @@ function App() {
 													/>
 												)}
 											</>
+										) : table === 'faculty' && k === 'college_id' ? (
+											<select
+												value={form.college_id ?? ''}
+												onChange={(event) => {
+													const collegeId = event.target.value;
+													const course = (referenceOptions.course_id ?? []).find(
+														(item) => item.id === form.course_id,
+													);
+													const keepCourse =
+														collegeId && course && course.college_id === collegeId;
+													F({
+														...form,
+														college_id: collegeId,
+														course_id: keepCourse ? form.course_id : '',
+														branch_id: '',
+													});
+												}}
+											>
+												<option value="">Select</option>
+												{includeCurrentReference(
+													referenceOptions.college_id,
+													referenceOptions.college_id,
+													form.college_id,
+												).map((option) => (
+													<option key={option.id} value={option.id}>
+														{option.name}
+													</option>
+												))}
+											</select>
+										) : table === 'faculty' && k === 'course_id' ? (
+											<select
+												value={form.course_id ?? ''}
+												onChange={(event) => {
+													const courseId = event.target.value;
+													const branch = (referenceOptions.branch_id ?? []).find(
+														(item) => item.id === form.branch_id,
+													);
+													const keepBranch =
+														courseId && branch && branch.course_id === courseId;
+													F({
+														...form,
+														course_id: courseId,
+														branch_id: keepBranch ? form.branch_id : '',
+													});
+												}}
+											>
+												<option value="">Select</option>
+												{includeCurrentReference(
+													facultyCourseOptions(),
+													referenceOptions.course_id,
+													form.course_id,
+												).map((option) => (
+													<option key={option.id} value={option.id}>
+														{option.name}
+													</option>
+												))}
+											</select>
+										) : table === 'faculty' && k === 'branch_id' ? (
+											<select
+												value={form.branch_id ?? ''}
+												onChange={(event) => F({ ...form, branch_id: event.target.value })}
+											>
+												<option value="">Select</option>
+												{includeCurrentReference(
+													facultyBranchOptions(),
+													referenceOptions.branch_id,
+													form.branch_id,
+												).map((option) => (
+													<option key={option.id} value={option.id}>
+														{option.name}
+													</option>
+												))}
+											</select>
 										) : referenceTables[k] ? (
 											<select
 												value={form[k] ?? ''}
@@ -2910,6 +3142,20 @@ function App() {
 														{option.name}
 													</option>
 												))}
+											</select>
+										) : textReferenceTables[k] ? (
+											<select
+												value={form[k] ?? ''}
+												onChange={(e) => F({ ...form, [k]: e.target.value })}
+											>
+												<option value="">Select</option>
+												{textReferenceNames(referenceOptions[k], form[k]).map(
+													(name) => (
+														<option key={name} value={name}>
+															{name}
+														</option>
+													),
+												)}
 											</select>
 										) : [
 												'active',
@@ -3008,7 +3254,7 @@ function App() {
 								<thead>
 									<tr>
 										{fields.map((f) => (
-											<th key={f}>{f.replaceAll('_', ' ')}</th>
+											<th key={f}>{fieldHeadings[f] ?? f.replaceAll('_', ' ')}</th>
 										))}
 										{canManageCurrentMaster && <th>Actions</th>}
 									</tr>

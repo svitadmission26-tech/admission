@@ -1,0 +1,5 @@
+# Admission Extras - incremental development
+
+Implemented: server-side public enabled FAQ read; admin-authenticated FAQ list/create/delete scoped by college UUID; public provisional visit-slot availability endpoint; Gujarati FAQ widget on public inquiry page. Uses migration 026 from the foundation archive. Set VITE_PUBLIC_COLLEGE_ID to an existing college UUID, VITE_API_URL to server URL and server SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY. Apply migrations in order to a test project. Start Vite and Express separately. Admin FAQ API requires an admin user's bearer token. Do not expose service role keys in Vite variables.
+
+Not yet implemented: admin GUI for FAQ editing, actual appointment reservation from inquiry (existing inquiry reference must be mapped to UUID safely), faculty follow-up, messaging providers, reminders, dynamic credential encryption, end-to-end integration tests. Slot counts are previews only; final booking must use the migration's locked RPC from a trusted authenticated server. No messages are sent by this release. Do not deploy as a finished production feature.
