@@ -62,24 +62,39 @@ for each row
 when (old.logo_url is distinct from new.logo_url)
 execute function public.sync_college_logo_to_admission_forms();
 
-insert into storage.buckets (
-  id,
-  name,
-  public,
-  file_size_limit,
-  allowed_mime_types
-)
-values (
-  'college-logos',
-  'college-logos',
-  true,
-  2097152,
-  array['image/jpeg', 'image/png', 'image/webp']
-)
-on conflict (id) do update
-set public = excluded.public,
-    file_size_limit = excluded.file_size_limit,
-    allowed_mime_types = excluded.allowed_mime_types;
+-- The bucket is created with the columns that the storage schema of
+-- this Supabase version has.
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'storage'
+      and table_name = 'buckets'
+      and column_name = 'public'
+  ) then
+    insert into storage.buckets (
+      id,
+      name,
+      public,
+      file_size_limit,
+      allowed_mime_types
+    )
+    values (
+      'college-logos',
+      'college-logos',
+      true,
+      2097152,
+      array['image/jpeg', 'image/png', 'image/webp']
+    )
+    on conflict (id) do nothing;
+  else
+    insert into storage.buckets (id, name)
+    values ('college-logos', 'college-logos')
+    on conflict (id) do nothing;
+  end if;
+end
+$$;
 
 drop policy if exists college_logos_public_read on storage.objects;
 create policy college_logos_public_read on storage.objects

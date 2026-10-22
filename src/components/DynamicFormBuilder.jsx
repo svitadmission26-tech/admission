@@ -5,6 +5,20 @@ import {
 	downloadExcelTemplate,
 	readExcelRows,
 } from '../lib/excel';
+import {
+	branchOptionsForField,
+	fieldPositionInSection,
+	makeFieldKey,
+	moveFieldInList,
+	moveFieldToPosition,
+	uniqueFieldKey,
+} from '../lib/formFields';
+import {
+	admissionTypeLabel,
+	admissionTypeOptions,
+	defaultAdmissionTypes,
+	normalizeAdmissionTypes,
+} from '../lib/admissionTypes';
 import './DynamicFormBuilder.css';
 
 const fieldTypes = [
@@ -18,6 +32,8 @@ const fieldTypes = [
 	'file',
 	'photo',
 	'document',
+	'branch',
+	'table',
 ];
 const fieldTypeLabels = {
 	text: 'Text',
@@ -30,7 +46,32 @@ const fieldTypeLabels = {
 	file: 'File Upload (Any)',
 	photo: 'Document (Photo)',
 	document: 'Document (Document)',
+	branch: 'Branch Selection',
+	table: 'Table (Marks Entry)',
 };
+// The label that is used when a field type is added from the multi select
+// panel. Every label can be changed afterwards with Configure.
+const defaultFieldLabels = {
+	text: 'Full Name',
+	email: 'Email Address',
+	number: 'Mobile Number',
+	date: 'Date of Birth',
+	textarea: 'Address',
+	select: 'Select Option',
+	checkbox: 'I Agree',
+	file: 'Upload Document',
+	photo: 'Passport Photo',
+	document: 'Upload Certificate',
+	branch: 'Branch',
+	table: 'Marks Table',
+};
+// The student profile field types that map directly onto a form field.
+const profileFieldType = (profileField) =>
+	profileField.input_type === 'image'
+		? 'photo'
+		: fieldTypes.includes(profileField.input_type)
+			? profileField.input_type
+			: 'text';
 
 const emptyField = () => ({
 	key: '',
@@ -49,17 +90,13 @@ const emptyField = () => ({
 	profileFieldId: '',
 	visibility: { fieldKey: '', operator: 'equals', value: '' },
 	options: [],
+	rows: 5,
 });
 const defaultSections = () => [
 	{ id: 'general', title: 'General', layout: 'columns', visibility: null },
 ];
 
-const makeKey = (label) =>
-	label
-		.toLowerCase()
-		.trim()
-		.replace(/[^a-z0-9]+/g, '_')
-		.replace(/^_|_$/g, '');
+const makeKey = makeFieldKey;
 const formExcelColumns = [
 	{ key: 'title', label: 'Form title' },
 	{ key: 'description', label: 'Description' },
@@ -123,7 +160,7 @@ function validateFormDefinition(
 	return '';
 }
 
-function PreviewField({ field }) {
+function PreviewField({ field, branches = [] }) {
 	const textCase =
 		field.textCase || (field.forceUppercase ? 'uppercase' : 'none');
 	const common = {
@@ -169,6 +206,19 @@ function PreviewField({ field }) {
 				))}
 			</select>
 		);
+	if (field.type === 'branch') {
+		const options = branchOptionsForField(field, branches);
+		return (
+			<select {...common} defaultValue={field.defaultValue || ''}>
+				<option value="">Select branch...</option>
+				{options.map((branch) => (
+					<option key={branch.id} value={branch.id}>
+						{branch.name}
+					</option>
+				))}
+			</select>
+		);
+	}
 	if (field.type === 'radio')
 		return (
 			<div className="dfb-radio-options">
@@ -188,7 +238,10 @@ function PreviewField({ field }) {
 	return <input {...common} type={field.type} />;
 }
 
-export default function DynamicFormBuilder() {
+// The form builder. An administrator builds and publishes the admission
+// forms. A staff member that has the "Dynamic Forms" page can open the
+// screen to read the forms, but cannot change them.
+export default function DynamicFormBuilder({ canManage = true }) {
 	const importRef = useRef(null);
 	const [forms, setForms] = useState([]);
 	const [formView, setFormView] = useState('list');
@@ -208,7 +261,9 @@ export default function DynamicFormBuilder() {
 	const [applicationFee, setApplicationFee] = useState('0');
 	const [enabledForStudents, setEnabledForStudents] = useState(true);
 	const [enableBranchSelection, setEnableBranchSelection] = useState(false);
-	const [allowedAdmissionTypes, setAllowedAdmissionTypes] = useState('Regular,D2D,C2D');
+	const [allowedAdmissionTypes, setAllowedAdmissionTypes] = useState(
+		defaultAdmissionTypes,
+	);
 	const [courseId, setCourseId] = useState('');
 	const [academicYear, setAcademicYear] = useState('');
 	const [formTypeId, setFormTypeId] = useState('');
@@ -217,14 +272,22 @@ export default function DynamicFormBuilder() {
 	const [activeSectionId, setActiveSectionId] = useState('general');
 	const [editingFieldIndex, setEditingFieldIndex] = useState(null);
 	const [fieldDraft, setFieldDraft] = useState(null);
+	const [fieldDraftMoveTo, setFieldDraftMoveTo] = useState('');
+	const [inlineMoveInputs, setInlineMoveInputs] = useState({});
 	const [sectionDraft, setSectionDraft] = useState(null);
 	const [newSectionTitle, setNewSectionTitle] = useState('');
 	const [fields, setFields] = useState([]);
+	const [branches, setBranches] = useState([]);
+	const [bulkDraft, setBulkDraft] = useState(null);
 	const [preview, setPreview] = useState(false);
 	const [message, setMessage] = useState('');
 	const [busy, setBusy] = useState(false);
 	const [loading, setLoading] = useState(true);
-	const locked = selected?.status === 'published';
+	// A published form can be changed like a draft. Saving a change applies it
+	// to the live form straight away. A staff member may only read a form.
+	const readOnly = !canManage;
+	const published = selected?.status === 'published';
+	const locked = readOnly;
 
 	async function loadForms() {
 		try {
@@ -235,6 +298,7 @@ export default function DynamicFormBuilder() {
 				yearsResult,
 				formTypesResult,
 				profileFieldsResult,
+				branchesResult,
 			] = await Promise.all([
 				supabase
 					.from('admission_forms')
@@ -245,25 +309,37 @@ export default function DynamicFormBuilder() {
 				supabase.from('academic_years').select('id,name').order('name', { ascending: false }),
 				supabase.from('form_types').select('id,name').eq('active', true).order('name'),
 				supabase.from('student_profile_fields').select('id,label,key,input_type,required,default_value,force_uppercase,text_case,options').order('display_order'),
+				supabase.from('branches').select('id,name,course_id,college_id,active').order('name'),
 			]);
-			const error = [
-				formsResult.error,
-				collegesResult.error,
-				coursesResult.error,
-				yearsResult.error,
-				formTypesResult.error,
-				profileFieldsResult.error,
-			].find(Boolean);
-			if (error) {
-				setMessage(error.message);
-				return error.message;
+			// The forms are the important part of the screen. A failing lookup
+			// of a reference list must never empty the list, so the lookups
+			// are handled one by one and only the forms stop the load.
+			if (formsResult.error) {
+				setMessage(formsResult.error.message);
+				return formsResult.error.message;
 			}
 			setForms(formsResult.data ?? []);
-			setColleges(collegesResult.data ?? []);
-			setCourses(coursesResult.data ?? []);
-			setAcademicYears(yearsResult.data ?? []);
-			setFormTypes(formTypesResult.data ?? []);
-			setProfileFields(profileFieldsResult.data ?? []);
+			const lookups = [
+				[collegesResult, setColleges],
+				[coursesResult, setCourses],
+				[yearsResult, setAcademicYears],
+				[formTypesResult, setFormTypes],
+				[profileFieldsResult, setProfileFields],
+				[branchesResult, setBranches],
+			];
+			const failed = lookups.filter(([result]) => result.error);
+			for (const [result, apply] of lookups) {
+				if (!result.error) apply(result.data ?? []);
+			}
+			if (failed.length) {
+				// The list stays usable, the reference lists keep the values
+				// that were loaded before.
+				const message = `The admission forms are listed, but some reference lists could not be loaded: ${failed
+					.map(([result]) => result.error.message)
+					.join(' | ')}`;
+				setMessage(message);
+				return message;
+			}
 			return null;
 		} catch (error) {
 			const message = errorMessage(error);
@@ -315,6 +391,10 @@ export default function DynamicFormBuilder() {
 		const file = event.target.files?.[0];
 		event.target.value = '';
 		if (!file) return;
+		if (!canManage) {
+			setMessage('Only an administrator can import admission forms.');
+			return;
+		}
 		setBusy(true);
 		setMessage('');
 		let imported = 0;
@@ -394,7 +474,7 @@ export default function DynamicFormBuilder() {
 		setApplicationFee('0');
 		setEnabledForStudents(true);
 		setEnableBranchSelection(false);
-		setAllowedAdmissionTypes('Regular,D2D,C2D');
+		setAllowedAdmissionTypes(defaultAdmissionTypes);
 		setCourseId('');
 		setAcademicYear('');
 		setFormTypeId('');
@@ -405,21 +485,31 @@ export default function DynamicFormBuilder() {
 		setFieldDraft(null);
 		setEditingFieldIndex(null);
 		setSectionDraft(null);
+		setBulkDraft(null);
 		setPreview(false);
 		setMessage('');
 	}
 
-	function editForm(form, { copy = false } = {}) {
+	function editForm(form, { copy = false, duplicate = false } = {}) {
+		const asDraft = copy || duplicate;
 		setFormView('editor');
-		setSelected(copy ? null : form);
-		setTitle(copy ? `${form.title} (Copy)` : form.title);
+		setSelected(asDraft ? null : form);
+		setTitle(
+			duplicate
+				? `${form.title} (New Version)`
+				: copy
+					? `${form.title} (Copy)`
+					: form.title,
+		);
 		setDescription(form.description || '');
 		setCollegeId(form.college_id || '');
 		setShowCollegeLogo(Boolean(form.show_college_logo));
 		setApplicationFee(String((Number(form.application_fee_paise) || 0) / 100));
 		setEnabledForStudents(form.enabled_for_students !== false);
 		setEnableBranchSelection(Boolean(form.enable_branch_selection));
-		setAllowedAdmissionTypes((form.allowed_admission_types ?? ['Regular']).join(','));
+		setAllowedAdmissionTypes(
+			normalizeAdmissionTypes(form.allowed_admission_types),
+		);
 		setCourseId(form.course_id || '');
 		setAcademicYear(form.academic_year || '');
 		setFormTypeId(form.form_type_id || '');
@@ -441,9 +531,16 @@ export default function DynamicFormBuilder() {
 		);
 		setFieldDraft(null);
 		setEditingFieldIndex(null);
+		setFieldDraftMoveTo('');
 		setSectionDraft(null);
 		setPreview(false);
-		setMessage(copy ? 'Editing a copy. Save it to create a new draft form.' : '');
+		setMessage(
+			duplicate
+				? 'Editing a new draft version of the published form. Save it to create the new version.'
+				: copy
+					? 'Editing a copy. Save it to create a new draft form.'
+					: '',
+		);
 	}
 
 	function updateField(index, key, value) {
@@ -477,6 +574,160 @@ export default function DynamicFormBuilder() {
 						},
 					},
 		);
+		// The box starts on the place the field has now.
+		setFieldDraftMoveTo(
+			index === null ? '' : String(fieldPositionInSection(fields, index) + 1),
+		);
+	}
+
+	// The number of fields of the section that the field editor works with.
+	// A new field is added at the end, so it may use one number more.
+	function draftSectionFieldCount(sectionId) {
+		const count = fields.filter((field) => field.sectionId === sectionId).length;
+		return editingFieldIndex === null ? count + 1 : count;
+	}
+
+	// The branches of the course that is selected for this form. They are the
+	// options of a "Branch Selection" field.
+	function courseBranches() {
+		if (!courseId) return branches;
+		return branches.filter(
+			(branch) => branch.course_id === courseId && branch.active !== false,
+		);
+	}
+
+	// Opens the panel that adds several fields in one go, either from the
+	// field types or from the student profile fields.
+	function openBulkAdd() {
+		const types = {};
+		for (const type of fieldTypes) {
+			types[type] = { checked: false, label: defaultFieldLabels[type] };
+		}
+		setBulkDraft({ tab: 'types', types, profiles: {} });
+	}
+
+	function toggleBulkType(type, checked) {
+		setBulkDraft((current) => ({
+			...current,
+			types: {
+				...current.types,
+				[type]: { ...current.types[type], checked },
+			},
+		}));
+	}
+
+	function setBulkTypeLabel(type, label) {
+		setBulkDraft((current) => ({
+			...current,
+			types: {
+				...current.types,
+				[type]: { ...current.types[type], label },
+			},
+		}));
+	}
+
+	function toggleBulkProfile(profileId, checked) {
+		setBulkDraft((current) => ({
+			...current,
+			profiles: { ...current.profiles, [profileId]: checked },
+		}));
+	}
+
+	function toggleAllBulkTypes(checked) {
+		setBulkDraft((current) => ({
+			...current,
+			types: Object.fromEntries(
+				Object.entries(current.types).map(([type, config]) => [
+					type,
+					{ ...config, checked },
+				]),
+			),
+		}));
+	}
+
+	function toggleAllBulkProfiles(checked) {
+		setBulkDraft((current) => ({
+			...current,
+			profiles: Object.fromEntries(
+				profileFields.map((profile) => [profile.id, checked]),
+			),
+		}));
+	}
+
+	// Adds every selected field in one step. Keys that are already used get a
+	// numeric suffix so that the form stays valid.
+	function bulkAddFields() {
+		if (!bulkDraft) return;
+		const usedKeys = new Set(fields.map((field) => field.key).filter(Boolean));
+		const added = [];
+		const addField = (field) => {
+			const base = field.key || makeKey(field.label);
+			added.push({ ...field, key: uniqueFieldKey(base, usedKeys) });
+		};
+
+		for (const type of fieldTypes) {
+			const config = bulkDraft.types[type];
+			if (!config?.checked) continue;
+			const label = (config.label || '').trim() || fieldTypeLabels[type];
+			addField({
+				...emptyField(),
+				label,
+				key: '',
+				type,
+				sectionId: activeSectionId,
+				options:
+					type === 'select'
+						? ['Option 1', 'Option 2']
+						: type === 'branch'
+							? courseBranches().map((branch) => branch.id)
+							: [],
+			});
+		}
+
+		for (const profile of profileFields) {
+			if (!bulkDraft.profiles[profile.id]) continue;
+			addField({
+				...emptyField(),
+				label: profile.label,
+				key: profile.key,
+				type: profileFieldType(profile),
+				required: Boolean(profile.required),
+				defaultValue: profile.default_value || '',
+				forceUppercase: Boolean(profile.force_uppercase),
+				textCase:
+					profile.text_case ||
+					(profile.force_uppercase ? 'uppercase' : 'none'),
+				options: Array.isArray(profile.options) ? profile.options : [],
+				profileFieldId: profile.id,
+				sectionId: activeSectionId,
+			});
+		}
+
+		if (!added.length) {
+			setMessage('Select at least one field to add.');
+			return;
+		}
+		setFields((current) => [...current, ...added]);
+		setBulkDraft(null);
+		setMessage(
+			`${added.length} field${added.length === 1 ? '' : 's'} added to ${
+				sections.find((section) => section.id === activeSectionId)?.title ??
+				'the section'
+			}.`,
+		);
+	}
+
+	// Moves a field up or down inside its own section.
+	function moveField(index, offset) {
+		setFields((current) => moveFieldInList(current, index, offset));
+	}
+
+	// Moves a field directly to the given Sr. No. inside its own section.
+	function moveFieldToSr(index, sr) {
+		const target = Number(sr);
+		if (!Number.isFinite(target) || target < 1) return;
+		setFields((current) => moveFieldToPosition(current, index, target - 1));
+		setInlineMoveInputs((current) => ({ ...current, [index]: '' }));
 	}
 
 	function saveFieldDraft(event) {
@@ -508,16 +759,42 @@ export default function DynamicFormBuilder() {
 			setMessage(`${nextField.label}: choose the field to copy from.`);
 			return;
 		}
-		setFields((current) => {
-			if (editingFieldIndex === null) return [...current, nextField];
-			return current.map((field, index) =>
-				index === editingFieldIndex ? nextField : field,
-			);
-		});
+		// The place the field gets in its section. An empty box keeps the
+		// place the field has now.
+		const moveTarget = fieldDraftMoveTo.trim()
+			? Number(fieldDraftMoveTo) - 1
+			: null;
+		if (moveTarget !== null && (!Number.isFinite(moveTarget) || moveTarget < 0)) {
+			setMessage('The Sr. No. must be a number of 1 or more.');
+			return;
+		}
+		const nextFields =
+			editingFieldIndex === null
+				? [...fields, nextField]
+				: fields.map((field, index) =>
+						index === editingFieldIndex ? nextField : field,
+					);
+		const fieldIndex =
+			editingFieldIndex === null ? nextFields.length - 1 : editingFieldIndex;
+		const oldPosition = fieldPositionInSection(nextFields, fieldIndex);
+		const reordered =
+			moveTarget === null
+				? nextFields
+				: moveFieldToPosition(nextFields, fieldIndex, moveTarget);
+		// The field can be on another place of the list after the move, so it
+		// is looked up again.
+		const movedIndex = reordered.findIndex((field) => field === nextField);
+		const newPosition = fieldPositionInSection(reordered, movedIndex);
+		setFields(reordered);
 		setActiveSectionId(nextField.sectionId);
 		setFieldDraft(null);
 		setEditingFieldIndex(null);
-		setMessage('');
+		setFieldDraftMoveTo('');
+		setMessage(
+			moveTarget !== null && newPosition >= 0 && newPosition !== oldPosition
+				? `${nextField.label} is now Sr. No. ${newPosition + 1}.`
+				: '',
+		);
 	}
 
 	function addSection(event) {
@@ -585,10 +862,13 @@ export default function DynamicFormBuilder() {
 
 	async function save(status) {
 		if (busy) return;
-		if (locked) {
-			setMessage('Published forms are locked. Duplicate one to create a new version.');
+		if (!canManage) {
+			setMessage('Only an administrator can change an admission form.');
 			return;
 		}
+		// A form that was already published keeps its published status when the
+		// changes are saved.
+		const wasPublished = selected?.status === 'published';
 		const validationError = validate();
 		if (validationError) {
 			setMessage(validationError);
@@ -603,9 +883,7 @@ export default function DynamicFormBuilder() {
 			setMessage('Application fee must be zero or more.');
 			return;
 		}
-		const admissionTypes = [...new Set(
-			allowedAdmissionTypes.split(',').map((item) => item.trim()).filter(Boolean),
-		)];
+		const admissionTypes = normalizeAdmissionTypes(allowedAdmissionTypes);
 
 		setBusy(true);
 		setMessage('');
@@ -626,7 +904,7 @@ export default function DynamicFormBuilder() {
 				form_sections: sections,
 				fields: fields.map((field) => ({
 					...field,
-					options: ['select', 'radio'].includes(field.type)
+					options: ['select', 'radio', 'branch'].includes(field.type)
 						? field.options.map((option) => option.trim()).filter(Boolean)
 						: [],
 				})),
@@ -647,10 +925,12 @@ export default function DynamicFormBuilder() {
 			setFormView('list');
 			setMessage(
 				refreshError
-					? `Form saved, but the list could not be refreshed: ${refreshError}`
-					: status === 'published'
-						? 'Form published.'
-						: 'Draft saved.',
+					? `Form saved, but the screen could not be fully refreshed: ${refreshError}`
+					: wasPublished
+						? 'The changes were saved to the published form. The students see them straight away.'
+						: status === 'published'
+							? 'Form published.'
+							: 'Draft saved.',
 			);
 		} catch (error) {
 			setMessage(errorMessage(error));
@@ -660,7 +940,7 @@ export default function DynamicFormBuilder() {
 	}
 
 	async function removeDraft() {
-		if (!selected || locked || busy) return;
+		if (!selected || locked || busy || !canManage) return;
 		if (!window.confirm('Delete this draft form?')) return;
 		setBusy(true);
 		try {
@@ -677,7 +957,7 @@ export default function DynamicFormBuilder() {
 			setFormView('list');
 			setMessage(
 				refreshError
-					? `Draft deleted, but the list could not be refreshed: ${refreshError}`
+					? `Draft deleted, but the screen could not be fully refreshed: ${refreshError}`
 					: 'Draft deleted.',
 			);
 		} catch (error) {
@@ -688,7 +968,7 @@ export default function DynamicFormBuilder() {
 	}
 
 	async function removeForm(form) {
-		if (form.status === 'published' || busy) return;
+		if (form.status === 'published' || busy || !canManage) return;
 		if (!window.confirm(`Delete draft "${form.title}"?`)) return;
 		setBusy(true);
 		try {
@@ -703,7 +983,7 @@ export default function DynamicFormBuilder() {
 			const refreshError = await loadForms();
 			setMessage(
 				refreshError
-					? `Draft deleted, but the list could not be refreshed: ${refreshError}`
+					? `Draft deleted, but the screen could not be fully refreshed: ${refreshError}`
 					: 'Draft deleted.',
 			);
 		} catch (error) {
@@ -726,6 +1006,13 @@ export default function DynamicFormBuilder() {
 			(!listCourseId || form.course_id === listCourseId) &&
 			(!listFormTypeId || form.form_type_id === listFormTypeId),
 	);
+	// The fields of the section that is open in the schema builder. The
+	// position is used to enable the move up and move down buttons.
+	const sectionFieldRows = fields
+		.map((field, index) => ({ field, index }))
+		.filter(({ field }) => field.sectionId === activeSectionId);
+	const activeSectionTitle =
+		sections.find((section) => section.id === activeSectionId)?.title ?? '';
 
 	return (
 		<div className="dfb">
@@ -738,16 +1025,20 @@ export default function DynamicFormBuilder() {
 					<button type="button" onClick={() => void exportForms()}>
 						Export Excel
 					</button>
-					<button type="button" onClick={() => void downloadFormTemplate()}>
-						Download template
-					</button>
-					<button
-						type="button"
-						disabled={busy}
-						onClick={() => importRef.current?.click()}
-					>
-						Import drafts
-					</button>
+					{canManage && (
+						<>
+							<button type="button" onClick={() => void downloadFormTemplate()}>
+								Download template
+							</button>
+							<button
+								type="button"
+								disabled={busy}
+								onClick={() => importRef.current?.click()}
+							>
+								Import drafts
+							</button>
+						</>
+					)}
 					<input
 						ref={importRef}
 						className="excel-file-input"
@@ -756,16 +1047,18 @@ export default function DynamicFormBuilder() {
 						aria-label="Import admission form drafts from Excel"
 						onChange={(event) => void importForms(event)}
 					/>
-					<button
-						type="button"
-						className="dfb-primary"
-						onClick={() => {
-							resetForm();
-							setFormView('editor');
-						}}
-					>
-						Add New Admission Form
-					</button>
+					{canManage && (
+						<button
+							type="button"
+							className="dfb-primary"
+							onClick={() => {
+								resetForm();
+								setFormView('editor');
+							}}
+						>
+							Add New Admission Form
+						</button>
+					)}
 				</div>
 			</div>
 			{formView === 'list' ? (
@@ -823,19 +1116,55 @@ export default function DynamicFormBuilder() {
 													<span className={`dfb-status-badge ${form.enabled_for_students === false ? 'disabled' : 'enabled'}`}>
 														{form.enabled_for_students === false ? 'Disabled' : 'Enabled'}
 													</span>
+													<span className={`dfb-draft-badge ${form.status === 'published' ? 'published' : 'draft'}`}>
+														{form.status === 'published' ? 'Published' : 'Draft'}
+													</span>
 												</td>
 												<td className="dfb-row-actions">
-													<button type="button" className="dfb-edit-action" onClick={() => editForm(form)}>Edit</button>
-													<button type="button" onClick={() => editForm(form, { copy: true })}>Copy</button>
-													<button
-														type="button"
-														className="dfb-delete-action"
-														disabled={form.status === 'published' || busy}
-														title={form.status === 'published' ? 'Published forms cannot be deleted; copy it to create a draft.' : 'Delete draft'}
-														onClick={() => void removeForm(form)}
-													>
-														Delete
-													</button>
+													{readOnly ? (
+														<button
+															type="button"
+															className="dfb-edit-action"
+															title="Open the form to read it"
+															onClick={() => editForm(form)}
+														>
+															View
+														</button>
+													) : form.status === 'published' ? (
+														<>
+															<button
+																type="button"
+																className="dfb-edit-action"
+																title="Edit the published form. The changes are applied to the live form as soon as they are saved."
+																onClick={() => editForm(form)}
+															>
+																Edit
+															</button>
+															<button
+																type="button"
+																title="Create an editable copy of this published form as a new draft"
+																onClick={() => editForm(form, { duplicate: true })}
+															>
+																Duplicate
+															</button>
+														</>
+													) : (
+														<>
+															<button type="button" className="dfb-edit-action" onClick={() => editForm(form)}>Edit</button>
+															<button type="button" onClick={() => editForm(form, { copy: true })}>Copy</button>
+														</>
+													)}
+													{canManage && (
+														<button
+															type="button"
+															className="dfb-delete-action"
+															disabled={form.status === 'published' || busy}
+															title={form.status === 'published' ? 'A published form cannot be deleted. Take it out of service with "Enabled for Students" instead.' : 'Delete draft'}
+															onClick={() => void removeForm(form)}
+														>
+															Delete
+														</button>
+													)}
 												</td>
 											</tr>
 										);
@@ -850,7 +1179,15 @@ export default function DynamicFormBuilder() {
 				<section className="dfb-editor">
 					<div className="dfb-bar">
 						<div className="dfb-editor-heading">
-							<h3>{selected ? 'Edit Admission Form' : 'Create New Admission Form'}</h3>
+							<h3>
+								{readOnly
+									? 'Admission Form'
+									: published
+										? 'Edit Published Admission Form'
+										: selected
+											? 'Edit Admission Form'
+											: 'Create New Admission Form'}
+							</h3>
 							<button type="button" onClick={() => setFormView('list')}>← Back</button>
 						</div>
 						<button type="button" onClick={() => setPreview((current) => !current)}>
@@ -861,6 +1198,27 @@ export default function DynamicFormBuilder() {
 						<p className="dfb-message" role="status">
 							{message}
 						</p>
+					)}
+					{readOnly && (
+						<div className="dfb-notice dfb-notice-readonly" role="status">
+							<strong>You can read the admission forms, but not change them.</strong>
+							<p>
+								Only an administrator can create, edit, publish and delete an admission
+								form. Ask an administrator if a form has to be changed.
+							</p>
+						</div>
+					)}
+					{published && !readOnly && (
+						<div className="dfb-notice dfb-notice-published" role="status">
+							<strong>This form is published and is live for students.</strong>
+							<p>
+								You can change it here. Saving applies the change to the live form
+								straight away, so the students who have not applied yet see the new
+								questions. The applications that are already submitted keep their own
+								answers. Use <strong>Duplicate as new version</strong> when this form
+								has to stay as it is.
+							</p>
+						</div>
 					)}
 					<label>
 						Form title
@@ -981,16 +1339,53 @@ export default function DynamicFormBuilder() {
 							Show college logo on this admission form
 						</label>
 					</div>
-					<label>
-						Allowed Admission Types (comma-separated)
-						<input
-							disabled={locked}
-							value={allowedAdmissionTypes}
-							onChange={(event) => setAllowedAdmissionTypes(event.target.value)}
-							placeholder="Regular,D2D,C2D"
-						/>
-						<small>Leave empty to allow Regular admission.</small>
-					</label>
+					<div className="dfb-admission-types">
+						<span className="dfb-field-label">Admission Types</span>
+						<div className="dfb-admission-type-options">
+							{admissionTypeOptions.map((option) => (
+								<label className="dfb-check" key={option.value}>
+									<input
+										type="checkbox"
+										disabled={locked}
+										checked={allowedAdmissionTypes.includes(option.value)}
+										onChange={(event) =>
+											setAllowedAdmissionTypes((current) =>
+												event.target.checked
+													? [...current, option.value]
+													: current.filter((item) => item !== option.value),
+											)
+										}
+									/>
+									{option.label}
+								</label>
+							))}
+							{/* A type that an older form already uses is kept. */}
+							{allowedAdmissionTypes
+								.filter(
+									(value) =>
+										!admissionTypeOptions.some((option) => option.value === value),
+								)
+								.map((value) => (
+									<label className="dfb-check" key={value}>
+										<input
+											type="checkbox"
+											disabled={locked}
+											checked
+											onChange={() =>
+												setAllowedAdmissionTypes((current) =>
+													current.filter((item) => item !== value),
+												)
+											}
+										/>
+										{admissionTypeLabel(value)}
+									</label>
+								))}
+						</div>
+						<small>
+							The student picks one of the allowed types on the admission form. When no
+							type is ticked, only Regular admission is allowed.
+						</small>
+					</div>
 					{preview ? (
 						<div className={`dfb-preview dfb-preview-${formLayout}`}>
 							{showCollegeLogo &&
@@ -1009,7 +1404,7 @@ export default function DynamicFormBuilder() {
 									['Admission Cycle', academicYear],
 									['Form Type', formTypes.find((type) => type.id === formTypeId)?.name],
 									['Application Fee', `₹${Number(applicationFee || 0).toFixed(2)}`],
-									['Admission Types', allowedAdmissionTypes.split(',').map((item) => item.trim()).filter(Boolean).join(', ') || 'Regular'],
+									['Admission Types', allowedAdmissionTypes.map(admissionTypeLabel).join(', ') || 'Regular'],
 								].map(([label, value]) => value && (
 									<div key={label}>
 										<dt>{label}</dt>
@@ -1033,6 +1428,7 @@ export default function DynamicFormBuilder() {
 													{field.required && ' *'}
 													<PreviewField
 														field={field}
+														branches={courseBranches()}
 													/>
 												</label>
 											))}
@@ -1103,29 +1499,90 @@ export default function DynamicFormBuilder() {
 									<div className="dfb-bar">
 										<div>
 											<h4>Fields</h4>
-											<strong>{sections.find((section) => section.id === activeSectionId)?.title}</strong>
+											<strong>{activeSectionTitle}</strong>
+											<small className="dfb-sr-hint">
+												The Sr. No. shows the order of the field in this section.
+											</small>
 										</div>
-										<button type="button" className="dfb-primary" disabled={locked} onClick={() => openFieldEditor()}>
-											Add Field
-										</button>
+										<div className="dfb-field-actions">
+											<button type="button" disabled={locked} onClick={() => openBulkAdd()}>
+												Add Fields in Bulk
+											</button>
+											<button type="button" className="dfb-primary" disabled={locked} onClick={() => openFieldEditor()}>
+												Add Field
+											</button>
+										</div>
 									</div>
-									{fields
-										.map((field, index) => ({ field, index }))
-										.filter(({ field }) => field.sectionId === activeSectionId)
-										.map(({ field, index }) => (
-											<div className="dfb-schema-field" key={`${field.key}-${index}`}>
-												<div>
-													<strong>{field.label}</strong>
-													<small>{field.key} · {field.type} · {field.width || 'full'} width</small>
-													{field.required && <small>Required</small>}
-												</div>
-												<div className="dfb-field-actions">
-													<button type="button" disabled={locked} onClick={() => openFieldEditor(index)}>Configure</button>
-													<button type="button" disabled={locked} onClick={() => setFields((current) => current.filter((_, fieldIndex) => fieldIndex !== index))}>Remove</button>
-												</div>
+									{sectionFieldRows.map(({ field, index }, position) => (
+										<div className="dfb-schema-field" key={`${field.key}-${index}`}>
+											<span
+												className="dfb-sr-no"
+												title={`Sr. No. ${position + 1} of ${sectionFieldRows.length} in ${activeSectionTitle}`}
+											>
+												{position + 1}
+											</span>
+											<div>
+												<strong>{field.label}</strong>
+												<small>{field.key} · {fieldTypeLabels[field.type] || field.type} · {field.width || 'full'} width</small>
+												{field.required && <small>Required</small>}
+												{field.profileFieldId && <small>Linked to a student profile field</small>}
 											</div>
-										))}
-									{!fields.some((field) => field.sectionId === activeSectionId) && (
+											<div className="dfb-field-actions">
+												<button
+													type="button"
+													disabled={locked || position === 0}
+													onClick={() => moveField(index, -1)}
+													aria-label={`Move ${field.label} up`}
+													title="Move up"
+												>
+													↑
+												</button>
+												<button
+													type="button"
+													disabled={locked || position === sectionFieldRows.length - 1}
+													onClick={() => moveField(index, 1)}
+													aria-label={`Move ${field.label} down`}
+													title="Move down"
+												>
+													↓
+												</button>
+												<input
+													type="number"
+													min="1"
+													max={sectionFieldRows.length}
+													value={inlineMoveInputs[index] ?? ''}
+													onChange={(event) =>
+														setInlineMoveInputs((current) => ({
+															...current,
+															[index]: event.target.value,
+														}))
+													}
+													onKeyDown={(event) => {
+														if (event.key === 'Enter') {
+															event.preventDefault();
+															moveFieldToSr(index, inlineMoveInputs[index]);
+														}
+													}}
+													disabled={locked}
+													aria-label={`Move ${field.label} to Sr. No.`}
+													title="Move to Sr. No."
+													className="dfb-sr-move-input"
+												/>
+												<button
+													type="button"
+													disabled={locked}
+													onClick={() => moveFieldToSr(index, inlineMoveInputs[index])}
+													aria-label={`Move ${field.label} to Sr. No.`}
+													title="Move to Sr. No."
+												>
+													Move
+												</button>
+												<button type="button" disabled={locked} onClick={() => openFieldEditor(index)}>Configure</button>
+												<button type="button" disabled={locked} onClick={() => setFields((current) => current.filter((_, fieldIndex) => fieldIndex !== index))}>Remove</button>
+											</div>
+										</div>
+									))}
+									{!sectionFieldRows.length && (
 										<p className="dfb-empty">No fields in this section.</p>
 									)}
 								</section>
@@ -1177,6 +1634,113 @@ export default function DynamicFormBuilder() {
 							</form>
 						</div>
 					)}
+					{bulkDraft && (
+						<div className="dfb-modal-backdrop" role="presentation">
+							<form className="dfb-modal dfb-bulk-modal" onSubmit={(event) => { event.preventDefault(); bulkAddFields(); }}>
+								<div className="dfb-bar">
+									<h3>Add Fields in Bulk</h3>
+									<button type="button" onClick={() => setBulkDraft(null)} aria-label="Close">×</button>
+								</div>
+								<p className="dfb-bulk-hint">
+									Tick every field you need and add them all in one step. The
+									fields are added to <strong>{activeSectionTitle}</strong> and
+									can be renamed, moved up or down, or removed afterwards.
+								</p>
+								<div className="dfb-bulk-tabs">
+									<button
+										type="button"
+										className={bulkDraft.tab === 'types' ? 'active' : ''}
+										onClick={() => setBulkDraft({ ...bulkDraft, tab: 'types' })}
+									>
+										Custom field types
+									</button>
+									<button
+										type="button"
+										className={bulkDraft.tab === 'profile' ? 'active' : ''}
+										onClick={() => setBulkDraft({ ...bulkDraft, tab: 'profile' })}
+									>
+										Student profile fields
+									</button>
+								</div>
+								{bulkDraft.tab === 'types' ? (
+									<fieldset>
+										<legend>Custom field types</legend>
+										<div className="dfb-bulk-toolbar">
+											<button type="button" onClick={() => toggleAllBulkTypes(true)}>Select all</button>
+											<button type="button" onClick={() => toggleAllBulkTypes(false)}>Clear</button>
+										</div>
+										<div className="dfb-bulk-list">
+											{fieldTypes.map((type) => {
+												const config = bulkDraft.types[type];
+												return (
+													<div className="dfb-bulk-row" key={type}>
+														<label className="dfb-check">
+															<input
+																type="checkbox"
+																checked={Boolean(config?.checked)}
+																onChange={(event) => toggleBulkType(type, event.target.checked)}
+															/>
+															{fieldTypeLabels[type]}
+														</label>
+														<input
+															aria-label={`${fieldTypeLabels[type]} label`}
+															value={config?.label ?? ''}
+															placeholder="Field label"
+															onChange={(event) => setBulkTypeLabel(type, event.target.value)}
+														/>
+													</div>
+												);
+											})}
+										</div>
+										<small>
+											The branch field lists the branches of the selected course. It
+											is only available when a course is selected on this form.
+										</small>
+									</fieldset>
+								) : (
+									<fieldset>
+										<legend>Student profile fields</legend>
+										<div className="dfb-bulk-toolbar">
+											<button type="button" onClick={() => toggleAllBulkProfiles(true)}>Select all</button>
+											<button type="button" onClick={() => toggleAllBulkProfiles(false)}>Clear</button>
+										</div>
+										{profileFields.length ? (
+											<div className="dfb-bulk-list">
+												{profileFields.map((profile) => (
+													<div className="dfb-bulk-row" key={profile.id}>
+														<label className="dfb-check">
+															<input
+																type="checkbox"
+																checked={Boolean(bulkDraft.profiles[profile.id])}
+																onChange={(event) => toggleBulkProfile(profile.id, event.target.checked)}
+															/>
+															{profile.label}
+														</label>
+														<small>{profile.key} · {profile.input_type}</small>
+													</div>
+												))}
+											</div>
+										) : (
+											<p className="dfb-empty">No student profile fields are defined yet.</p>
+										)}
+										<small>
+											A ticked profile field is added with its own label, key,
+											type and text case, and stays linked to the student profile.
+										</small>
+									</fieldset>
+								)}
+								<div className="dfb-footer">
+									<button type="button" onClick={() => setBulkDraft(null)}>Cancel</button>
+									<button className="dfb-primary">
+										Add {bulkDraft.tab === 'types'
+											? fieldTypes.filter((type) => bulkDraft.types[type]?.checked).length
+											: profileFields.filter((profile) => bulkDraft.profiles[profile.id]).length}{' '}
+										field(s)
+									</button>
+								</div>
+							</form>
+						</div>
+					)}
 					{fieldDraft && (
 						<div className="dfb-modal-backdrop" role="presentation">
 							<form className="dfb-modal dfb-field-modal" onSubmit={saveFieldDraft}>
@@ -1197,11 +1761,7 @@ export default function DynamicFormBuilder() {
 													? {
 															label: profileField.label,
 															key: profileField.key,
-															type: profileField.input_type === 'image'
-																? 'photo'
-																: fieldTypes.includes(profileField.input_type)
-																	? profileField.input_type
-																	: 'text',
+															type: profileFieldType(profileField),
 															required: profileField.required,
 															defaultValue: profileField.default_value || '',
 															forceUppercase: profileField.force_uppercase,
@@ -1221,6 +1781,21 @@ export default function DynamicFormBuilder() {
 										{sections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}
 									</select>
 								</label>
+								<label>Move to Sr. No.
+									<input
+										type="number"
+										min="1"
+										max={draftSectionFieldCount(fieldDraft.sectionId)}
+										value={fieldDraftMoveTo}
+										placeholder={editingFieldIndex === null ? 'At the end' : 'Current number'}
+										onChange={(event) => setFieldDraftMoveTo(event.target.value)}
+									/>
+									<small>
+										The field gets this number in the section "
+										{sections.find((section) => section.id === fieldDraft.sectionId)?.title ?? 'the section'}"
+										when the field is saved. Leave the box empty to keep the place it has now.
+									</small>
+								</label>
 								<div className="dfb-grid">
 									<label>Label
 										<input required value={fieldDraft.label} onChange={(event) => setFieldDraft({ ...fieldDraft, label: event.target.value, ...(fieldDraft.key ? {} : { key: makeKey(event.target.value) }) })} />
@@ -1229,7 +1804,24 @@ export default function DynamicFormBuilder() {
 										<input required pattern="[a-z][a-z0-9_]*" value={fieldDraft.key} onChange={(event) => setFieldDraft({ ...fieldDraft, key: event.target.value })} />
 									</label>
 									<label>Type
-										<select value={fieldDraft.type} onChange={(event) => setFieldDraft({ ...fieldDraft, type: event.target.value })}>
+										<select
+											value={fieldDraft.type}
+											onChange={(event) => {
+												const type = event.target.value;
+												setFieldDraft({
+													...fieldDraft,
+													type,
+													options:
+														type === 'branch'
+															? fieldDraft.options.filter((option) =>
+																	courseBranches().some((branch) => branch.id === option),
+																)
+															: type === 'select'
+																? fieldDraft.options
+																: [],
+												});
+											}}
+										>
 											{fieldTypes.map((type) => <option key={type} value={type}>{fieldTypeLabels[type]}</option>)}
 										</select>
 									</label>
@@ -1246,6 +1838,55 @@ export default function DynamicFormBuilder() {
 									<label>Options (one per line)
 										<textarea rows="3" value={fieldDraft.options.join('\n')} onChange={(event) => setFieldDraft({ ...fieldDraft, options: event.target.value.split('\n').map((item) => item.trim()).filter(Boolean) })} />
 									</label>
+								)}
+								{fieldDraft.type === 'table' && (
+									<label>Number of rows
+										<input
+											type="number"
+											min="1"
+											value={fieldDraft.rows ?? 5}
+											onChange={(event) =>
+												setFieldDraft({
+													...fieldDraft,
+													rows: Number(event.target.value) || 5,
+												})
+											}
+										/>
+									</label>
+								)}
+								{fieldDraft.type === 'branch' && (
+									<fieldset>
+										<legend>Branch Selection</legend>
+										{courseBranches().length ? (
+											<div className="dfb-bulk-list">
+												{courseBranches().map((branch) => (
+													<label className="dfb-check" key={branch.id}>
+														<input
+															type="checkbox"
+															checked={fieldDraft.options.includes(branch.id)}
+															onChange={() => {
+															const options = fieldDraft.options.includes(branch.id)
+																? fieldDraft.options.filter((option) => option !== branch.id)
+																: [...fieldDraft.options, branch.id];
+															setFieldDraft({ ...fieldDraft, options });
+														}}
+														/>
+														{branch.name}
+													</label>
+												))}
+											</div>
+										) : (
+											<p className="dfb-empty">
+												{courseId
+													? 'This course has no branches yet.'
+													: 'Select a course on this form to list its branches.'}
+											</p>
+										)}
+										<small>
+											Leave every branch unticked to offer all the branches of the
+											course. The selected branch is stored with the application.
+										</small>
+									</fieldset>
 								)}
 								<label className="dfb-check"><input type="checkbox" checked={fieldDraft.required} onChange={(event) => setFieldDraft({ ...fieldDraft, required: event.target.checked })} />Required</label>
 								<label className="dfb-check"><input type="checkbox" checked={fieldDraft.merit} onChange={(event) => setFieldDraft({ ...fieldDraft, merit: event.target.checked })} />Is Merit Field?</label>
@@ -1308,47 +1949,59 @@ export default function DynamicFormBuilder() {
 							</form>
 						</div>
 					)}
-					<div className="dfb-footer">
-						{locked ? (
-							<button type="button" onClick={duplicatePublished}>
-								Duplicate published form
-							</button>
-						) : (
-							<>
-								<button
-									type="button"
-									disabled={busy}
-									onClick={() => save('draft')}
-								>
-									{selected ? 'Save Draft' : 'Create Form'}
-								</button>
-								<button
-									type="button"
-									className="dfb-primary"
-									disabled={busy}
-									onClick={() => {
-										if (
-											window.confirm(
-												'Publish this form? Published forms are locked.',
-											)
-										)
-											void save('published');
-									}}
-								>
-									Publish Form
-								</button>
-								{selected && (
+					{!readOnly && (
+						<div className="dfb-footer">
+							{published ? (
+								<>
+									<button
+										type="button"
+										className="dfb-primary"
+										disabled={busy}
+										onClick={() => save('published')}
+									>
+										Save Changes
+									</button>
+									<button type="button" disabled={busy} onClick={duplicatePublished}>
+										Duplicate as new version
+									</button>
+								</>
+							) : (
+								<>
 									<button
 										type="button"
 										disabled={busy}
-										onClick={() => void removeDraft()}
+										onClick={() => save('draft')}
 									>
-										Delete Draft
+										{selected ? 'Save Draft' : 'Create Form'}
 									</button>
-								)}
-							</>
-						)}
-					</div>
+									<button
+										type="button"
+										className="dfb-primary"
+										disabled={busy}
+										onClick={() => {
+											if (
+												window.confirm(
+													'Publish this form? The students see it as soon as it is published.',
+												)
+											)
+												void save('published');
+										}}
+									>
+										Publish Form
+									</button>
+									{selected && (
+										<button
+											type="button"
+											disabled={busy}
+											onClick={() => void removeDraft()}
+										>
+											Delete Draft
+										</button>
+									)}
+								</>
+							)}
+						</div>
+					)}
 				</section>
 			)}
 		</div>

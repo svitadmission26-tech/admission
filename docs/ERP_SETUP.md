@@ -37,6 +37,166 @@ The active application is a React/Vite frontend backed by Supabase Auth, Postgre
 
 After the base migration, run migrations `003_staff_roles.sql` through `022_student_inquiry_prefill.sql` in numerical order in the Supabase SQL Editor. They add staff roles, ID cards, inquiries, final admission records, seat-capacity enforcement, academics workflows, workbook-backed admission setup, receipt sequence configuration, admission-management tab configuration, college-logo storage and print settings, admission form schema-builder configuration, Student Profile Schema field options/text-case settings, standard student profile fields, admin inquiry/report template storage, dynamic branch intake headings with category/branch capacity enforcement, quota seat report/transfer history, configurable staff page/feature access with college/department/course data scopes, fixes for recursive/hidden catalog row policies, and verified-student-email inquiry prefill for admission applications. The admission workflow depends on inquiries from migration 005 and must follow the existing migrations 003 and 004. Each migration is idempotent, so re-running an already-applied file is safe and does not duplicate tables, policies, indexes, or functions.
 
+## Dynamic login modules (migration 034)
+
+The login page lists the login modules from the `public.login_modules` table. **If migration `034_dynamic_login_modules.sql` has not been applied in your project, the login page has no modules to show.** Apply it in the Supabase SQL Editor after migration 033:
+
+```bash
+# the file to run in the Supabase SQL Editor
+supabase/migrations/034_dynamic_login_modules.sql
+```
+
+The migration is idempotent and adds:
+
+- `public.login_modules` – the module list (Admin, Faculty, Student, HOD, Admission Staff, Accountant, Library Staff, Examination Cell) with the dashboard route and the roles that may use each module,
+- `public.get_college_branding()` – the college name and logo shown on the login page,
+- `public.effective_login_role()` and `public.resolve_login_module()` – the server side validation of the selected module,
+- `public.admin_save_login_module()` – the admin screen that renames, orders, enables, disables and restricts modules,
+- `public.resolve_login_email()` – signing in with the user id instead of the email address.
+
+Until the migration is applied the login page shows the built-in module list from `src/lib/loginModules.js` together with a warning, so the page is never empty. The server side validation stays switched off in that state: apply the migration to let the database validate the module and the role.
+
+## The 25 ERP modules (migrations 035 to 042)
+
+The dynamic College ERP runs on the framework that migrations `035` to `042` add. Apply
+them in numerical order after migration 034:
+
+```bash
+supabase/migrations/035_erp_core_framework.sql      # module registry, permissions, workflows, receipts, reports, notifications, audit
+supabase/migrations/036_erp_dynamic_forms.sql       # the centralised dynamic form builder and the system settings
+supabase/migrations/037_erp_people_spine.sql        # the shared student / faculty / guardian spine
+supabase/migrations/038_erp_academics.sql           # semesters, curriculum, rooms, substitutions, attendance
+supabase/migrations/039_erp_finance_transport_hr.sql # accounts, transport, HR and payroll
+supabase/migrations/040_erp_exam_library_hostel.sql # examination, library, hostel and ID card
+supabase/migrations/041_erp_support_modules.sql     # communication, inventory, placement, certificates, website, helpdesk
+supabase/migrations/042_erp_security_audit.sql      # the module path on the shared masters and the audit triggers
+```
+
+Every migration is idempotent. The whole chain can be applied again on a database that
+already has it: no error, no duplicated table, policy, index or function.
+
+> **If a migration fails with**
+> `ERROR: function public.erp_apply_module_policies(unknown, unknown) does not exist`
+> **or with**
+> `ERROR: cannot change name of input parameter`
+> **or with**
+> `ERROR: column "student.user_id" does not exist`
+> **or with**
+> `ERROR: relation "public.erp_timetable_rooms" does not exist`
+>
+> **then run the single repair file `supabase/repair/erp_apply_module_policies.sql`**
+> in the Supabase SQL Editor and run the module migrations 036 to 042 again.
+> The repair file creates the helper, makes sure the shared masters are there
+> and protects every module table that already exists. It never drops a record.
+>
+> To see why a migration stops, run `supabase/repair/diagnose.sql` first. It
+> only reads and shows every version of the policy helper, everything that
+> still uses it, the module tables and their permissions. The **last table** of
+> the output is a summary of 19 checks. Every row that says `MISSING` is what
+> the error is about. The file never fails, not even on a database where
+> nothing of the ERP is there yet.
+>
+> The helper is carried by the migrations 036 to 042 themselves, so a module
+> migration can be applied on its own.
+>
+> The helper never stops a migration. A table that is missing, a role that is
+> missing or a policy that cannot be created is reported as a warning and the
+> migration goes on. When the permission matrix of migration 035 is not there
+> yet, a safe fallback is used: everybody is refused and the admins are let in.
+> The report of the repair file then shows that migration 035 is still missing.
+>
+> Every other statement of the migrations 036 to 042 is protected the same
+> way. A statement that cannot be run is reported as a warning that names the
+> statement, for example:
+>
+>     WARNING:  create unique index if not exists erp_curriculum_unique:
+>                column "course_id" does not exist
+>
+> The rest of the migration is still applied. The Supabase SQL Editor runs a
+> whole script in one transaction, so without that protection a single error
+> would roll the whole migration back.
+>
+> **If a module migration stopped halfway**, run
+> `supabase/repair/module_policies.sql` as well. It applies the module permissions
+> to every module table again and reports what is still missing.
+>
+> `npm run test:migrations` checks the migration files themselves: a file that was
+> cut short, a broken dollar quoting, a module migration without the helper or a
+> migration that reads a shared master without making sure it is there fails that
+> test before the migrations are applied.
+
+What the framework adds:
+
+- `public.erp_modules` – the 25 modules with their number, title, icon, dashboard
+  route, entry page and the **enabled** switch. A disabled module disappears from the
+  navigation and from the access list; its records and its users stay untouched.
+- `public.erp_module_permissions` – the per-role view / create / edit / delete / export /
+  approve rights of every module. `public.get_my_erp_access()` returns the access of the
+  signed-in account and `public.erp_module_permission(module, action)` is the check that
+  the row level security of every module table uses.
+- `public.erp_form_definitions`, `public.erp_form_versions`, `public.erp_form_records` –
+  the dynamic form builder. `public.erp_save_form()` writes a **new version** on every
+  save, so a renamed or removed field never changes the data that was already
+  collected. `public.erp_form_errors()` validates a payload against a version and
+  `public.erp_save_form_record()` refuses a payload that does not match.
+- `public.erp_approval_workflows`, `public.erp_workflow_items`,
+  `public.erp_workflow_action()` – the configurable approval chains.
+- `public.erp_receipt_templates`, `public.erp_report_definitions`,
+  `public.erp_saved_reports`, `public.erp_report_schedules` – the receipt layouts and the
+  custom reports.
+- `public.erp_module_timings`, `public.erp_feature_flags`, `public.erp_settings` – the
+  module wise configuration.
+- `public.erp_notifications`, `public.erp_notification_reads`,
+  `public.erp_notify()` – the notification centre.
+- `public.erp_audit_log` – every write of every module table, written by a trigger.
+
+The shared masters are extended, never copied:
+
+- `students` gets `user_id`, `inquiry_id`, `application_id`, `admission_id`, `course_id`,
+  `branch_id`, `department_id` and the profile columns. The enrollment, the student id
+  code and the login are unique, so a student is never created twice.
+- `faculty` gets `user_id`, `employee_code`, `department_id`, `designation_id` and the
+  employment columns. The faculty code and the login are unique.
+- `departments` gets `hod_faculty_id`.
+- A trigger links a portal login to the master row that already carries the verified
+  e-mail address, in both directions. The student and the faculty portal therefore read
+  the master record and never a copy.
+
+### The roles of the modules
+
+The module matrix is seeded by migration 035 for the roles of the ERP. New roles:
+`principal`, `transport_manager`, `accounts_officer`, `hr_manager`, `librarian`,
+`hostel_warden`, `exam_controller`, `placement_officer`, `inventory_manager`,
+`certificate_officer`, `website_editor`, `helpdesk_agent`, `parent` and `counsellor`.
+Each of them also gets a login module, so the login page offers the entry point of
+every module.
+
+### Local stack for development
+
+A local Postgres + PostgREST + GoTrue stack with all migrations applied can be started without touching the hosted project:
+
+```bash
+npm run local-stack          # starts the stack and prints the .env.local values
+npm run local-stack:down     # stops and removes it
+```
+
+Put the printed values into `.env.local` to run the app against the local stack, then start the frontend with `npm run dev`. The stack serves `http://127.0.0.1:8000`, MailHog captures the outgoing emails on `http://127.0.0.1:8025`.
+
+### Tests
+
+```bash
+npm run test:login-modules       # the built-in catalogue stays in sync with migration 034
+npm run test:login-modules:e2e   # the full login flow against the local stack
+npm run test:form-fields         # the admission form field helpers
+npm run test:admission-types     # the admission type codes and labels
+npm run test:erp-excel           # the shared Excel layer of the modules
+npm run test:erp-registry:e2e    # the module registry against the navigation and the database
+npm run test:erp-modules:e2e     # the 25 modules, the permissions, the shared masters and the audit trail
+```
+
+The end-to-end suites need the local stack to be running (`npm run local-stack`). They cover the public module dropdown, college branding, the role based routing of every module, disabled modules, disabled staff accounts, the row level security of the module tables, the permission matrix of the 25 modules, the shared student and faculty masters, the schema versioning of the dynamic form builder, the notification centre and the audit trail.
+
+
 Copy `server/.env.example` to `server/.env` and set the Supabase URL, public anon key, and **server-only service-role key**. Set a valid `CORS_ORIGIN` for the frontend. Never put the service-role key in `.env.local`, a `VITE_` variable, source control, or client code. The frontend calls `http://localhost:3001/api` by default; set `VITE_API_BASE_URL` in `.env.local` if the API runs elsewhere.
 
 Run the API and frontend in separate terminals:
@@ -94,9 +254,57 @@ Excel tools use `.xlsx` files and are available on the relevant module screens:
 
 Templates require their original header names and order. Formula and hyperlink cells are rejected. Imports create records only; use the module workflow for changes that affect admission decisions, payments, private files, accounts, or issued cards. ExcelJS is loaded on demand when an Excel action is used.
 
-In **Form Builder**, administrators can add and reorder fields, preview the form, save drafts, publish, and duplicate a published form to start a new version. Published forms are locked in the UI. Supported field types are text, email, telephone, number, date, textarea, select, radio, and checkbox.
+In **Form Builder**, administrators can add and reorder fields, preview the form, save drafts, publish, and duplicate a published form to start a new version. A published form stays editable: saving a change applies it to the live form straight away. Supported field types are text, email, telephone, number, date, textarea, select, radio, checkbox, file upload, photo, document and branch selection.
 
-Students are shown the newest published form. Course-specific form selection is not implemented yet. Form Builder `fields` are stored in the `admission_forms.fields` JSON column as an array. Example:
+### Draft and published forms
+
+The form list shows a **Draft** or **Published** badge next to every form, so it is clear at a glance which forms are live for students.
+
+- A **draft** form has the actions **Edit**, **Copy** and **Delete**. Editing it opens the form builder with all fields editable.
+- A **published** form has the actions **Edit**, **Duplicate** and a disabled **Delete**. Editing it opens the same builder; the editor shows a notice that the form is live for students.
+- **Save Draft** and **Publish Form** belong to a draft. A published form is saved with **Save Changes**, which updates the form in place and keeps its published status.
+- **Save Changes** on a published form applies the change to the live form immediately: the students who have not applied yet see the new questions. The applications that are already submitted keep their own answers.
+- **Duplicate** (in the list or as **Duplicate as new version** in the editor) creates an editable draft named `<form title> (New Version)`. Use it when the current form has to stay exactly as it is and the new questions belong to a separate form.
+- A published form cannot be deleted because the applications refer to it. Take it out of service with **Enabled for Students** instead.
+
+A staff role that has the **Dynamic Forms** page can open the screen to read the forms. The screen then only offers **View** and **Export Excel** and explains that only an administrator can change a form.
+
+### Admission types
+
+**Admission Types** on a form decides which admission types the student may apply with. Tick the types that the form allows:
+
+| Stored value | Shown to the administrator and to the student |
+| --- | --- |
+| `Regular` | Regular |
+| `C2D` | C2D (C to D) |
+| `D2D` | D2D (D to D) |
+
+- The codes are stored in `admission_forms.allowed_admission_types` (a text array) and the chosen type is written to `applications.answers.admission_type`.
+- When the form allows more than one type, the student picks one on the application form. When only one type is allowed, it is written to the application automatically.
+- When no type is ticked, only Regular admission is allowed.
+- A type that an older form already uses and that is not one of the three is kept and can be removed in the builder, so an existing form never loses a value.
+
+### Adding fields in Form Builder
+
+- **Add Field** opens the field editor for one field.
+- **Add Fields in Bulk** adds several fields in one step. The panel has two tabs:
+  - *Custom field types*: tick every field type you need, change the label of each one and add them together. A key that is already used gets a numeric suffix, so the form stays valid.
+  - *Student profile fields*: tick the student profile fields and add them together. Every added field keeps its label, key, type, required flag and text case and stays linked to the student profile field.
+- The new fields are added to the section that is open in the sidebar. Every field row starts with its **Sr. No.**, the position of the field inside that section (1, 2, 3 …). The number follows the field when it is moved, and every section counts from 1 again. Use the **↑** and **↓** buttons of a field to move it up or down inside its section. The fields of the other sections keep their position.
+- The field editor has a **Move to Sr. No.** box. It starts on the number the field has now; type another number and save the field and it moves to that number in its section. The same box works for a new field, so a field can be added straight at the right place. A number that is too large moves the field to the end of the section, a number that is too small moves it to the start.
+- **Branch Selection** is a field type that shows the branches of the course that is selected on the form. Tick the branches that should be offered; when no branch is ticked every active branch of the course is offered. The branch that the student chooses is stored with the application in `answers.branch_id`, and an inquiry that mentions the same branch pre-fills the field.
+
+### Tests
+
+```bash
+npm run test:form-fields        # field keys, move up / down and the branch options
+npm run test:admission-types    # the admission type codes, labels and clean up
+npm run test:branch-field:e2e   # the branch field on a published form (needs the local stack)
+```
+
+Students are shown every published form that is enabled for students. When only one form is published it is opened straight away. When more than one form is published the student gets an **Admission Form** selection and picks the form that belongs to the course and the admission cycle; the newest form is selected by default. The chosen form decides the questions, the sections, the admission types and the branches, and the application is stored with the form that was chosen (`applications.form_id`).
+
+Form Builder `fields` are stored in the `admission_forms.fields` JSON column as an array. Example:
 
 ```json
 [

@@ -147,6 +147,13 @@ function conditionVisible(field, values) {
 	return actual === expected;
 }
 
+function fieldHasOtherOption(field) {
+	if (!field || !['select', 'radio'].includes(field.type)) return false;
+	return (field.options ?? []).some(
+		(option) => String(option).trim().toLowerCase() === 'other',
+	);
+}
+
 export function PublicInquiry() {
 	const [form, setForm] = useState(initialInquiry);
 	const [busy, setBusy] = useState(false);
@@ -439,26 +446,45 @@ case 'department': {
 		}
 
 		if (field.type === 'radio') {
+			const isOtherSelected =
+				fieldHasOtherOption(field) &&
+				String(form[field.key] ?? '')
+					.trim()
+					.toLowerCase() === 'other';
 			return (
-				<label className={`inquiry-field width-${width}`} key={field.key}>
-					{label}
-					{required ? ' *' : ''}
-					<span className="inquiry-radio-group">
-						{fieldOptionsFor(field).map((option) => (
-							<span key={option.value}>
-								<input
-									type="radio"
-									name={field.key}
-									value={option.value}
-									required={required}
-									checked={value === option.value}
-									onChange={(event) => setFieldValue(field.key, event.target.value)}
-								/>
-								{option.label}
-							</span>
-						))}
-					</span>
-				</label>
+				<>
+					<label className={`inquiry-field width-${width}`} key={field.key}>
+						{label}
+						{required ? ' *' : ''}
+						<span className="inquiry-radio-group">
+							{fieldOptionsFor(field).map((option) => (
+								<span key={option.value}>
+									<input
+										type="radio"
+										name={field.key}
+										value={option.value}
+										required={required}
+										checked={value === option.value}
+										onChange={(event) => setFieldValue(field.key, event.target.value)}
+									/>
+									{option.label}
+								</span>
+							))}
+						</span>
+					</label>
+					{isOtherSelected && (
+						<label className={`inquiry-field width-${width}`}>
+							{label} (Other)
+							<input
+								type="text"
+								value={form[`${field.key}_other`] ?? ''}
+								onChange={(event) =>
+									setFieldValue(`${field.key}_other`, event.target.value)
+								}
+							/>
+						</label>
+					)}
+				</>
 			);
 		}
 
@@ -531,23 +557,42 @@ case 'department': {
 					</label>
 				);
 			}
+			const isOtherSelected =
+				fieldHasOtherOption(field) &&
+				String(form[field.key] ?? '')
+					.trim()
+					.toLowerCase() === 'other';
 			return (
-				<label className={`inquiry-field width-${width}`} key={field.key}>
-					{label}
-					{required ? ' *' : ''}
-					<select
-						required={required}
-						value={value}
-						onChange={(event) => setFieldValue(field.key, event.target.value)}
-					>
-						<option value="">Select {label.toLowerCase()}</option>
-						{options.map((option) => (
-							<option key={option.value} value={option.value}>
-								{option.label}
-							</option>
-						))}
-					</select>
-				</label>
+				<>
+					<label className={`inquiry-field width-${width}`} key={field.key}>
+						{label}
+						{required ? ' *' : ''}
+						<select
+							required={required}
+							value={value}
+							onChange={(event) => setFieldValue(field.key, event.target.value)}
+						>
+							<option value="">Select {label.toLowerCase()}</option>
+							{options.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
+					</label>
+					{isOtherSelected && (
+						<label className={`inquiry-field width-${width}`}>
+							{label} (Other)
+							<input
+								type="text"
+								value={form[`${field.key}_other`] ?? ''}
+								onChange={(event) =>
+									setFieldValue(`${field.key}_other`, event.target.value)
+								}
+							/>
+						</label>
+					)}
+				</>
 			);
 		}
 
@@ -592,8 +637,9 @@ case 'department': {
 	}
 
 	return (
-		<div className="inquiry-public">
-            <AdmissionChatbot />
+		<>
+			<AdmissionChatbot />
+			<div className="inquiry-public">
 			<section className="inquiry-hero">
 				<a className="inquiry-mark" href="/" aria-label="SVIT home">
 					S
@@ -674,6 +720,7 @@ case 'department': {
 				</a>
 			</section>
 		</div>
+		</>
 	);
 }
 

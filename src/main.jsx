@@ -3,8 +3,26 @@ import { createRoot } from 'react-dom/client';
 import { supabase, configured } from './supabase';
 import { downloadExcel } from './lib/excel';
 import { fieldLabel, isUuid, isUuidField } from './lib/validation';
-import { pagePermission } from './lib/accessControl';
+import { branchOptionsForField } from './lib/formFields';
+import {
+	admissionTypeLabel,
+	normalizeAdmissionTypes,
+} from './lib/admissionTypes';
+import {
+	pagePermission,
+	existingPages as modules,
+	existingDashboardRoutes as moduleCards,
+	legacyPageNames,
+} from './lib/accessControl';
+import {
+	defaultLoginModules,
+	isLoginModuleSetupMissing,
+} from './lib/loginModules';
+import { erpModules, erpModuleById } from './lib/erpModules';
+import { loadErpAccess, modulePermissions } from './lib/erpAccess';
+import LoginPage, { clearRememberedLogin } from './components/LoginPage';
 import './style.css';
+import './erp.css';
 const DynamicFormBuilder = React.lazy(
 	() => import('./components/DynamicFormBuilder'),
 );
@@ -40,6 +58,7 @@ const InquiryFormBuilder = React.lazy(
 	() => import('./components/InquiryFormBuilder'),
 );
 const CollegeTiming = React.lazy(() => import('./components/CollegeTiming'));
+const IntakeReport = React.lazy(() => import('./components/IntakeReport'));
 const TimetableModule = React.lazy(() =>
 	import('./components/Academics').then((module) => ({
 		default: module.TimetableModule,
@@ -63,153 +82,64 @@ const LeaveDashboard = React.lazy(() => import('./components/LeaveDashboard'));
 const StudentManagement = React.lazy(
 	() => import('./components/StudentManagement'),
 );
-const modules = [
-	['Dashboard', 'LayoutDashboard'],
-	['Manage Users', '\u{1F465}'],
-	['Universities', '\u{1F3DB}\uFE0F'],
-	['Colleges', '\u{1F3EB}'],
-	['Courses', '\u{1F4DA}'],
-	['Branches', '\u{1F33F}'],
-	['Academic Calendar', '\u{1F4C5}'],
-	['Admission Sequences', '\u{1F522}'],
-	['Receipt Sequences', '\u{1F9FE}'],
-	['Form Types', '\u{1F3F7}\uFE0F'],
-	['Student Profile Schema', '\u{1F4DD}'],
-	['Dynamic Forms', '\u{1F4DD}'],
-	['Fee Structures', '\u20B9'],
-	['Fee Schemes', '\u{1F4B0}'],
-	['Payment Gateways', '\u{1F4B3}'],
-	['Merit Formulas', '\u{1F3C5}'],
-	['Calculate Merit', '\u{1F9EE}'],
-	['Inquiry Forms', '\u{1F4DE}'],
-	['Report Builder', '\u{1F4CA}'],
-	['Documentation', '\u{1F4D6}'],
-	['Config Guide', '\u2699\uFE0F'],
-	['Bus Seva QR Config', '\u{1F68D}'],
-	['Notice Board', '\u{1F4E2}'],
-	['Faculty', '\u{1F9D1}\u200D\u{1F3EB}'],
-	['Designation', '\u{1F4BC}'],
-	['Student Management', '\u{1F9D1}\u200D\u{1F393}'],
-	['Subjects', '\u{1F4D8}'],
-	['Timetable Dashboard', '\u{1F4CA}'],
-	['Timetable Management', '\u{1F550}'],
-	['College Timing', '\u{1F552}'],
-	['Leave Dashboard', '\u{1F334}'],
-	['Leave Management', '\u{1F4CB}'],
-	['Attendance', '\u2705'],
-	['Inquiries', '\u{1F4DE}'],
-	['ID Cards', '\u{1F39F}\uFE0F'],
-	['Final Admissions', '\u{1F393}'],
-	['Applications', '\u{1F468}\u200D\u{1F393}'],
-	['Documents', '\u{1F4C1}'],
-	['Manage Admission Forms', '\u{1F4C4}'],
-	['Fee Assignments', '\u{1F9FE}'],
-	['Payments', '\u{1F4B3}'],
-	['Merit Entries', '\u{1F4CA}'],
-	['Reports', '\u{1F4C8}'],
-	['My Applications', '\u{1F464}'],
-	['Workbook Data', '\u{1F4D1}'],
-];
-const moduleCards = [
-	{
-		id: 'college_info',
-		title: 'College information',
-		description: 'Users, Universities, Colleges, Courses, Branches, Calendar & Faculty',
-		icon: '\u{1F3DB}\uFE0F',
-		badge: 'Administrative',
-		pages: [
-			'Manage Users',
-			'Universities',
-			'Colleges',
-			'Courses',
-			'Branches',
-			'Academic Calendar',
-			'Designation',
-			'Faculty',
-		],
-	},
-	{
-		id: 'admissions',
-		title: 'New Admission Student management',
-		description: 'Inquiries, Admission Forms, Sequences, Fees, Merit, Reports & Notice Board',
-		icon: '\u{1F393}',
-		badge: 'Admissions Portal',
-		pages: [
-			'Dashboard',
-			'Admission Sequences',
-			'Receipt Sequences',
-			'Form Types',
-			'Student Profile Schema',
-			'Dynamic Forms',
-			'Fee Structures',
-			'Fee Schemes',
-			'Payment Gateways',
-			'Merit Formulas',
-			'Calculate Merit',
-			'Inquiry Forms',
-			'Report Builder',
-			'Documentation',
-			'Config Guide',
-			'Bus Seva QR Config',
-			'Inquiries',
-			'Final Admissions',
-			'Manage Admission Forms',
-			'Fee Assignments',
-			'Payments',
-			'Merit Entries',
-			'Reports',
-			'Workbook Data',
-			'Documents',
-			'Applications',
-			'Notice Board',
-		],
-	},
-	{
-		id: 'timetable',
-		title: 'Time table',
-		description: 'Timetable Dashboard, Subjects, Timetable Management & College Timing',
-		icon: '\u{1F550}',
-		badge: 'Academics',
-		pages: [
-			'Timetable Dashboard',
-			'Subjects',
-			'Timetable Management',
-			'College Timing',
-		],
-	},
-	{
-		id: 'faculty_leave',
-		title: 'Faculty Leave Mangment',
-		description: 'Daily Leave & Proxy Dashboard, Approval by Post (HOD/Principal/Chairman) & Docs',
-		icon: '\u{1F334}',
-		badge: 'Faculty Portal',
-		pages: [
-			'Leave Dashboard',
-			'Leave Management',
-		],
-	},
-	{
-		id: 'student_management',
-		title: 'Student Management',
-		description: 'Admission Year Student Data (ID & Enrollment Wise), Attendance & ID Cards',
-		icon: '\u{1F9D1}\u200D\u{1F393}',
-		badge: 'Student Records',
-		pages: [
-			'Student Management',
-			'Attendance',
-			'ID Cards',
-		],
-	},
-	{
-		id: 'super_admin',
-		title: 'Super Admin',
-		description: 'Full ERP Control, All Module Access, Security & User Roles',
-		icon: '\u2699\uFE0F',
-		badge: 'Full Access',
-		pages: null,
-	},
-];
+const ErpDashboard = React.lazy(() => import('./components/ErpDashboard'));
+const ErpModuleScreen = React.lazy(
+	() => import('./components/ErpModuleScreen'),
+);
+const ErpModuleWorkspace = React.lazy(
+	() => import('./components/ErpModuleWorkspace'),
+);
+const ErpModuleGrid = React.lazy(() => import('./components/ErpModuleGrid'));
+const ErpAdminSettings = React.lazy(
+	() => import('./components/ErpAdminSettings'),
+);
+const NotificationCenter = React.lazy(
+	() => import('./components/NotificationCenter'),
+);
 const moduleById = Object.fromEntries(moduleCards.map((card) => [card.id, card]));
+
+// Every ERP page resolves to the module and the record list it belongs to.
+// The legacy screens keep their own pages, so the admission, faculty,
+// timetable and ID card screens are never replaced.
+const legacyPageSet = new Set(legacyPageNames);
+const erpPageMap = new Map();
+for (const module of erpModules) {
+	// Every module has its own workspace route. The route is built from the
+	// module id, so it never collides with a page of the original screens and
+	// every module opens with its own data.
+	erpPageMap.set(erpModuleRoute(module.id), {
+		module,
+		tableKey: '',
+		kind: 'module',
+	});
+	if (!legacyPageSet.has(module.entryPage)) {
+		erpPageMap.set(module.entryPage, { module, tableKey: '', kind: 'module' });
+	}
+	for (const table of module.tables ?? []) {
+		if (legacyPageSet.has(table.title)) continue;
+		erpPageMap.set(table.title, { module, tableKey: table.key, kind: 'table' });
+	}
+}
+
+// The route of a module workspace.
+function erpModuleRoute(moduleId) {
+	return `module:${moduleId}`;
+}
+
+// The name that a page shows. A module workspace shows the title of the
+// module, so the header never shows a route.
+function pageLabel(name) {
+	const entry = erpPageMap.get(name);
+	if (entry?.kind === 'module') return entry.module.title;
+	return name;
+}
+
+// The page that opens a module. It is always the workspace of the module, so
+// the students module opens on the students, the faculty module on the faculty
+// and the accounts module on the ledger.
+function erpModuleHomePage(module) {
+	return erpModuleRoute(module.id);
+}
 const superAdminModules = [
 	{
 		title: 'College Information',
@@ -278,6 +208,10 @@ const superAdminModules = [
 		],
 	},
 ];
+// The 25 ERP modules are the tiles of the Super Admin dashboard.
+const superAdminErpModules = erpModules.filter(
+	(module) => module.id !== 'super_admin',
+);
 const superAdminModulePages = new Set(
 	superAdminModules.flatMap((module) => module.pages),
 );
@@ -325,10 +259,18 @@ function inquiryValueForField(field, inquiry) {
 	return value;
 }
 const meta = {
-	Universities: ['universities', ['name', 'active']],
+	Universities: ['universities', ['name', 'logo_url', 'active']],
 	Colleges: [
 		'colleges',
-		['name', 'code', 'university_name', 'logo_url', 'active'],
+		['name', 'code', 'university_name', 'logo_url', 'photo_1_url', 'photo_2_url', 'photo_3_url', 'photo_4_url', 'active'],
+	],
+	'Lateral Entry Intake': [
+		'lateral_entry_intakes',
+		['sr_no', 'college_name', 'course_name', 'branch_name', 'intake', 'acpc', 'mq', 'nri', 'vacant', 'tfws', 'academic_year'],
+	],
+	'Intake Report': [
+		'intake_reports',
+		['sr_no', 'college_name', 'course_name', 'branch', 'intake', 'acpc', 'mq', 'nri', 'total', 'tfws', 'filled_acpc', 'filled_mq', 'filled_nri', 'filled_total', 'vacant_acpc', 'vacant_mq', 'vacant_nri', 'total_vacant', 'p_q', 'cancel_tfws', 'cancel_acpc', 'cancel_mq', 'cancel_nri', 'cancel_tfws2', 'r_t_v', 'academic_year'],
 	],
 	Courses: [
 		'courses',
@@ -548,6 +490,39 @@ const fieldHeadings = {
 	department_id: 'Department',
 	form_type_id: 'Form Type',
 	fee_scheme_id: 'Fee Scheme',
+	logo_url: 'Logo',
+	photo_1_url: 'College Photo 1',
+	photo_2_url: 'College Photo 2',
+	photo_3_url: 'College Photo 3',
+	photo_4_url: 'College Photo 4',
+	sr_no: 'Sr. No.',
+	college_name: 'College',
+	course_name: 'Course',
+	branch_name: 'Branch',
+	branch: 'Branch',
+	intake: 'Intake',
+	acpc: 'ACPC',
+	mq: 'MQ',
+	nri: 'NRI',
+	total: 'Total',
+	tfws: 'TFWS',
+	filled_acpc: 'Filled ACPC',
+	filled_mq: 'Filled MQ',
+	filled_nri: 'Filled NRI',
+	filled_total: 'Filled Total',
+	vacant_acpc: 'Vacant ACPC',
+	vacant_mq: 'Vacant MQ',
+	vacant_nri: 'Vacant NRI',
+	total_vacant: 'Total Vacant',
+	p_q: 'P-Q',
+	cancel_tfws: 'Cancel TFWS',
+	cancel_acpc: 'Cancel ACPC',
+	cancel_mq: 'Cancel MQ',
+	cancel_nri: 'Cancel NRI',
+	cancel_tfws2: 'Cancel TFWS',
+	r_t_v: 'R-T-V',
+	vacant: 'Vacant',
+	academic_year: 'Academic Year',
 };
 const excelReferenceColumns = {
 	college_id: {
@@ -627,7 +602,28 @@ function conditionMatches(condition, values) {
 	return actual === expected;
 }
 
-function AdmissionField({ field, value, onChange, readOnly = false }) {
+// A select or radio field that offers an "Other" option reveals a companion
+// text input automatically, so the applicant can type the value that is not
+// in the list. The companion value is stored next to the field value under
+// the "<fieldKey>_other" key.
+function fieldHasOtherOption(field) {
+	if (!field || !['select', 'radio'].includes(field.type)) return false;
+	return (field.options ?? []).some(
+		(option) => String(option).trim().toLowerCase() === 'other',
+	);
+}
+
+function otherValueKey(fieldKey) {
+	return `${fieldKey}_other`;
+}
+
+function AdmissionField({
+	field,
+	value,
+	onChange,
+	readOnly = false,
+	branches = [],
+}) {
 	const textCase =
 		field.textCase || (field.forceUppercase ? 'uppercase' : 'none');
 	const applyTextCase = (input) =>
@@ -648,6 +644,27 @@ function AdmissionField({ field, value, onChange, readOnly = false }) {
 				: event.target.value;
 		onChange(applyTextCase(nextValue));
 	};
+
+	if (field.type === 'branch') {
+		// A branch field offers the branches of the form course. The form may
+		// restrict the list to a few branches.
+		const options = branchOptionsForField(field, branches);
+		return (
+			<select
+				{...common}
+				disabled={readOnly}
+				value={value ?? field.defaultValue ?? ''}
+				onChange={handleChange}
+			>
+				<option value="">Select branch</option>
+				{options.map((branch) => (
+					<option key={branch.id} value={branch.id}>
+						{branch.name}
+					</option>
+				))}
+			</select>
+		);
+	}
 
 	if (field.type === 'select')
 		return (
@@ -710,6 +727,85 @@ function AdmissionField({ field, value, onChange, readOnly = false }) {
 				))}
 			</div>
 		);
+	if (field.type === 'table') {
+		const rowCount = Number(field.rows) > 0 ? Number(field.rows) : 5;
+		const rows = Array.isArray(value) && value.length
+			? value
+			: Array.from({ length: rowCount }, () => ({
+					subject: '',
+					max_marks: '',
+					marks: '',
+				}));
+		const updateCell = (index, key, nextValue) => {
+			const nextRows = rows.map((row, i) =>
+				i === index ? { ...row, [key]: nextValue } : row,
+			);
+			onChange(nextRows);
+		};
+		const addRow = () =>
+			onChange([
+				...rows,
+				{ subject: '', max_marks: '', marks: '' },
+			]);
+		const removeRow = (index) =>
+			onChange(rows.filter((_, i) => i !== index));
+		return (
+			<div className="admission-table-field">
+				<table>
+					<thead>
+						<tr>
+							<th>Subject</th>
+							<th>Max marks</th>
+							<th>Marks obtained</th>
+							<th></th>
+						</tr>
+					</thead>
+					<tbody>
+						{rows.map((row, index) => (
+							<tr key={index}>
+								<td>
+									<input
+										type="text"
+										value={row.subject ?? ''}
+										onChange={(event) =>
+											updateCell(index, 'subject', event.target.value)
+										}
+									/>
+								</td>
+								<td>
+									<input
+										type="number"
+										value={row.max_marks ?? ''}
+										onChange={(event) =>
+											updateCell(index, 'max_marks', event.target.value)
+										}
+									/>
+								</td>
+								<td>
+									<input
+										type="number"
+										value={row.marks ?? ''}
+										onChange={(event) =>
+											updateCell(index, 'marks', event.target.value)
+										}
+									/>
+								</td>
+								<td>
+									<button
+										type="button"
+										onClick={() => removeRow(index)}
+									>
+										×
+									</button>
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+				<button type="button" onClick={addRow}>Add subject</button>
+			</div>
+		);
+	}
 	const inputType = ['email', 'date', 'number', 'tel', 'url'].includes(
 		field.type,
 	)
@@ -782,8 +878,16 @@ function App() {
 		[publicInquiryRoute, setPublicInquiryRoute] = useState(
 			window.location.hash === '#/inquiry',
 		),
-		[auth, A] = useState({ email: '', password: '', full_name: '' }),
-		[signup, SU] = useState(false);
+		[signup, SU] = useState(false),
+		[loginModules, setLoginModules] = useState([]),
+		[loginModuleWarning, setLoginModuleWarning] = useState(''),
+		[selectedModuleId, setSelectedModuleId] = useState(''),
+		[collegeBranding, setCollegeBranding] = useState(null),
+		[pendingModuleId, setPendingModuleId] = useState(null),
+		[recoveryMode, setRecoveryMode] = useState(false),
+		[authBusy, setAuthBusy] = useState(false),
+		[erpAccess, setErpAccess] = useState(null),
+		[erpTableKey, setErpTableKey] = useState('');
 	const admin = profile?.role === 'admin';
 	const hasPermission = (permission) =>
 		admin || staffPermissions.includes(permission);
@@ -847,7 +951,21 @@ function App() {
 		...(!staffRole && profile?.role !== 'admin'
 			? ['admissions']
 			: []),
+		// The portals of the ERP modules that the account may open.
+		...erpModules
+			.filter((module) => modulePermissions(erpAccess, module.id).view)
+			.map((module) => module.portal),
 	]);
+	// The ERP modules that the account may open. The list is memoised, because
+	// the module grid counts the records of every module and would otherwise
+	// reload them on every render.
+	const accessibleErpModules = React.useMemo(
+		() =>
+			erpModules.filter((module) =>
+				modulePermissions(erpAccess, module.id).view,
+			),
+		[erpAccess],
+	);
 	const table = meta[page]?.[0];
 	const fields = meta[page]?.[1];
 	// Faculty records keep college, course and branch in step: the course must
@@ -887,6 +1005,10 @@ function App() {
 		if (error) {
 			E(error.message);
 			P(null);
+			// The account could not be read, so no login module can be
+			// validated. Release the pending module so the workspace chooser
+			// stays reachable.
+			setPendingModuleId(null);
 			return;
 		}
 		P(data);
@@ -920,7 +1042,8 @@ function App() {
 			});
 		const {
 			data: { subscription },
-		} = supabase.auth.onAuthStateChange((_event, s) => {
+		} = supabase.auth.onAuthStateChange((event, s) => {
+			if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true);
 			S(s);
 			setTimeout(() => loadProfile(s?.user), 0);
 		});
@@ -1038,6 +1161,21 @@ function App() {
 			cancelled = true;
 		};
 	}, [session, profile, admin]);
+	// The ERP module access of the signed-in account. The database decides
+	// which modules the account may open and what it may do with them.
+	useEffect(() => {
+		if (!session || !profile) {
+			setErpAccess(null);
+			return undefined;
+		}
+		let cancelled = false;
+		loadErpAccess().then((access) => {
+			if (!cancelled) setErpAccess(access);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [session, profile]);
 	useEffect(() => {
 		supabase
 			.from('login_portal_settings')
@@ -1053,16 +1191,77 @@ function App() {
 			.catch(() => {});
 	}, []);
 	useEffect(() => {
-		if (session && staffAccessLoaded && !activePortal && allowedPortals.size === 1) {
+		if (!configured) return;
+		let cancelled = false;
+		// The login modules are read from the database. Row level security
+		// already hides the modules that an administrator has disabled.
+		supabase
+			.from('login_modules')
+			.select('id, name, description, icon, portal_id, display_order')
+			.eq('enabled', true)
+			.order('display_order', { ascending: true })
+			.then(({ data, error }) => {
+				if (cancelled) return;
+				if (error) {
+					if (isLoginModuleSetupMissing(error)) {
+						// Migration 034 has not been applied in this database yet.
+						// The built-in catalogue keeps the login page usable so the
+						// module list is never empty.
+						setLoginModules(defaultLoginModules);
+						setLoginModuleWarning(
+							'The login modules are not installed in this database yet, so the built-in list is shown. Apply migration 034_dynamic_login_modules.sql in Supabase to manage the modules and to validate them on the server.',
+						);
+						return;
+					}
+					E(`Could not load the login modules: ${error.message}`);
+					return;
+				}
+				setLoginModules(data ?? []);
+				setLoginModuleWarning('');
+			})
+			.catch((error) => {
+				if (cancelled) return;
+				setLoginModules(defaultLoginModules);
+				setLoginModuleWarning(
+					`The login modules could not be read from the database, so the built-in list is shown. ${
+						error instanceof Error ? error.message : ''
+					}`.trim(),
+				);
+			});
+		supabase.rpc('get_college_branding').then(({ data, error }) => {
+			if (cancelled) return;
+			if (!error && data) setCollegeBranding(data);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+	useEffect(() => {
+		if (!loginModules.length) return;
+		setSelectedModuleId((current) => {
+			if (current && loginModules.some((item) => item.id === current))
+				return current;
+			const match = activePortal
+				? loginModules.find((item) => item.portal_id === activePortal)
+				: null;
+			return match?.id ?? loginModules[0]?.id ?? '';
+		});
+	}, [loginModules, activePortal]);
+	useEffect(() => {
+		if (session && staffAccessLoaded && !activePortal && !pendingModuleId) {
 			const onlyPortal = Array.from(allowedPortals)[0];
-			choosePortal(onlyPortal);
+			if (allowedPortals.size === 1) choosePortal(onlyPortal);
 		}
-	}, [session, staffAccessLoaded, activePortal, allowedPortals]);
+	}, [session, staffAccessLoaded, activePortal, allowedPortals, pendingModuleId]);
+	useEffect(() => {
+		if (!session || !profile || !staffAccessLoaded || !pendingModuleId) return;
+		void resolveLoginModule(pendingModuleId);
+	}, [session, profile, staffAccessLoaded, pendingModuleId]);
 	useEffect(() => {
 		if (!session || !profile || !staffAccessLoaded || admin || !staffRole) return;
-		if (staffPermissions.includes(pagePermission(page))) return;
+		if (canOpenEntryPage(page)) return;
 		const firstAllowedPage = moduleById[activePortal]?.pages?.find((name) =>
-			staffPermissions.includes(pagePermission(name)),
+			canOpenEntryPage(name),
 		);
 		if (firstAllowedPage) Q(firstAllowedPage);
 	}, [session, profile, staffAccessLoaded, admin, staffRole, staffPermissions, page, activePortal]);
@@ -1180,26 +1379,179 @@ function App() {
 		}
 		R(data ?? []);
 	}
-	async function login(e) {
-		e.preventDefault();
+	// A signed in account may use the user id instead of the email address.
+	async function resolveLoginIdentifier(identifier) {
+		const value = String(identifier ?? '').trim();
+		if (!value || value.includes('@')) return value;
+		if (!isUuid(value)) return value;
+		const { data, error } = await supabase.rpc('resolve_login_email', {
+			p_user_id: value,
+		});
+		if (error || !data) return value;
+		return data;
+	}
+	async function handleLogin({ moduleId, identifier, password }) {
 		E('');
-		const result = signup
-			? await supabase.auth.signUp({
-					email: auth.email,
-					password: auth.password,
-					options: { data: { full_name: auth.full_name } },
-				})
-			: await supabase.auth.signInWithPassword({
-					email: auth.email,
-					password: auth.password,
-				});
-		if (result.error) E(result.error.message);
-		else if (signup)
+		N('');
+		setAuthBusy(true);
+		try {
+			const email = await resolveLoginIdentifier(identifier);
+			// The selected module is validated on the server before the
+			// account is routed to a workspace.
+			setPendingModuleId(moduleId);
+			const { error } = await supabase.auth.signInWithPassword({
+				email,
+				password,
+			});
+			if (error) {
+				setPendingModuleId(null);
+				E(error.message);
+				return false;
+			}
+			return true;
+		} catch (error) {
+			E(error instanceof Error ? error.message : 'Could not sign in.');
+			return false;
+		} finally {
+			setAuthBusy(false);
+		}
+	}
+	async function handleSignup({ fullName, email, password }) {
+		E('');
+		N('');
+		setAuthBusy(true);
+		try {
+			const { error } = await supabase.auth.signUp({
+				email,
+				password,
+				options: { data: { full_name: fullName } },
+			});
+			if (error) {
+				E(error.message);
+				return false;
+			}
 			N(
 				'Registration submitted. Confirm your email if confirmation is enabled.',
 			);
+			return true;
+		} catch (error) {
+			E(error instanceof Error ? error.message : 'Could not register.');
+			return false;
+		} finally {
+			setAuthBusy(false);
+		}
 	}
-	function choosePortal(portalId) {
+	async function handleForgotPassword({ identifier }) {
+		E('');
+		N('');
+		setAuthBusy(true);
+		try {
+			const email = await resolveLoginIdentifier(identifier);
+			const { error } = await supabase.auth.resetPasswordForEmail(email, {
+				redirectTo: window.location.origin,
+			});
+			if (error) {
+				E(error.message);
+				return false;
+			}
+			N('A password reset link has been sent to your email address.');
+			return true;
+		} catch (error) {
+			E(
+				error instanceof Error
+					? error.message
+					: 'Could not send the reset link.',
+			);
+			return false;
+		} finally {
+			setAuthBusy(false);
+		}
+	}
+	async function handleResetPassword({ password }) {
+		E('');
+		N('');
+		setAuthBusy(true);
+		try {
+			const { error } = await supabase.auth.updateUser({ password });
+			if (error) {
+				E(error.message);
+				return false;
+			}
+			setRecoveryMode(false);
+			N('Your password has been updated. You can sign in now.');
+			return true;
+		} catch (error) {
+			E(
+				error instanceof Error
+					? error.message
+					: 'Could not update the password.',
+			);
+			return false;
+		} finally {
+			setAuthBusy(false);
+		}
+	}
+	// Backend validation of the selected login module and the role based
+	// redirection to the dashboard that the module points at.
+	async function resolveLoginModule(moduleId) {
+		setPendingModuleId(null);
+		if (!supabase) return;
+		const { data, error } = await supabase.rpc('resolve_login_module', {
+			p_module_id: moduleId,
+		});
+		if (error) {
+			if (isLoginModuleSetupMissing(error)) {
+				// Migration 034 is not applied in this database, so the server
+				// cannot validate the module. The built-in catalogue still
+				// knows which workspace the module belongs to, and the
+				// workspace access rules below are applied as usual.
+				const fallback = defaultLoginModules.find(
+					(item) => item.id === moduleId,
+				);
+				if (fallback) {
+					choosePortal(fallback.portal_id, fallback.entry_page);
+					return;
+				}
+			}
+			E(
+				`Could not verify the login module: ${error.message}. Apply migration 034_dynamic_login_modules.sql.`,
+			);
+			return;
+		}
+		if (!data?.allowed) {
+			E(
+				data?.reason ||
+					'Your account is not authorised for the selected login module.',
+			);
+			return;
+		}
+		choosePortal(data.portal_id, data.entry_page);
+	}
+	function openLoginPage(portalId) {
+		const match = portalId
+			? loginModules.find((item) => item.portal_id === portalId)
+			: null;
+		if (match) setSelectedModuleId(match.id);
+		setActivePortal(portalId || 'login');
+		SU(false);
+		E('');
+		N('');
+	}
+	function canOpenEntryPage(name) {
+		if (!name) return false;
+		if (admin) return true;
+		const erpEntry = erpPageMap.get(name);
+		if (erpEntry) {
+			return modulePermissions(erpAccess, erpEntry.module.id).view;
+		}
+		if (canAccessPage(name)) return true;
+		if (!staffRole) return ['Dashboard', 'My Applications', 'Documents'].includes(name);
+		if (name === 'Leave Dashboard')
+			return staffRole === 'faculty' || canReadAcademics;
+		if (name === 'Timetable Dashboard') return canReadAcademics;
+		return false;
+	}
+	function choosePortal(portalId, entryPage) {
 		sessionStorage.setItem('svit-active-portal', portalId);
 		setActivePortal(portalId);
 		const portalPages = moduleById[portalId]?.pages || [];
@@ -1209,23 +1561,42 @@ function App() {
 		const startPage = admin || !staffRole
 			? fallbackPage
 			: (portalPages.find((name) =>
-					staffPermissions.includes(pagePermission(name)),
+					canOpenEntryPage(name),
 				) || fallbackPage);
-		Q(startPage);
+		Q(canOpenEntryPage(entryPage) ? entryPage : startPage);
 		SU(false);
 		E('');
 		N('');
 	}
-	async function signOut() {
-		const { error } = await supabase.auth.signOut();
-		if (error) {
-			E(error.message);
-			return;
-		}
+	// Takes the account back to the main page. The main page lists every
+	// module with the number of records that its main list holds, so the next
+	// step is always one click away.
+	function goToMainPage() {
 		sessionStorage.removeItem('svit-active-portal');
 		setActivePortal('');
+		setPendingModuleId(null);
 		Q('Dashboard');
 		G(null);
+		U('');
+		E('');
+		N('');
+	}
+	async function signOut() {
+		try {
+			await supabase.auth.signOut({ scope: 'local' });
+		} catch (error) {
+			E(error instanceof Error ? error.message : 'Sign out failed.');
+		}
+		sessionStorage.removeItem('svit-active-portal');
+		clearRememberedLogin();
+		setPendingModuleId(null);
+		setActivePortal('');
+		S(null);
+		P(null);
+		setStaffAccessLoaded(false);
+		Q('Dashboard');
+		G(null);
+		E('');
 	}
 	async function uploadCollegeLogo(file) {
 		if (editing === 'new' || !editing || !isUuid(editing)) {
@@ -1251,6 +1622,57 @@ function App() {
 		const { data } = supabase.storage.from('college-logos').getPublicUrl(path);
 		F((current) => ({ ...current, logo_url: data.publicUrl }));
 		N('Logo uploaded. Save the college record to apply the new logo.');
+	}
+	async function uploadUniversityLogo(file) {
+		if (editing === 'new' || !editing || !isUuid(editing)) {
+			E('Save the university before uploading its logo.');
+			return;
+		}
+		const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+		if (!allowedTypes.includes(file.type) || file.size > 2 * 1024 * 1024) {
+			E('Choose a JPG, PNG, or WebP image no larger than 2 MB.');
+			return;
+		}
+		E('');
+		const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+		const path = `university/${editing}/${crypto.randomUUID()}-${safeName}`;
+		const { error } = await supabase.storage.from('college-logos').upload(path, file, {
+			contentType: file.type,
+			upsert: false,
+		});
+		if (error) {
+			E(error.message);
+			return;
+		}
+		const { data } = supabase.storage.from('college-logos').getPublicUrl(path);
+		F((current) => ({ ...current, logo_url: data.publicUrl }));
+		N('Logo uploaded. Save the university record to apply the new logo.');
+	}
+	async function uploadCollegePhoto(slot, file) {
+		if (editing === 'new' || !editing || !isUuid(editing)) {
+			E('Save the college before uploading its photo.');
+			return;
+		}
+		const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+		if (!allowedTypes.includes(file.type) || file.size > 5 * 1024 * 1024) {
+			E('Choose a JPG, PNG, or WebP image no larger than 5 MB.');
+			return;
+		}
+		E('');
+		const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+		const path = `college-photo/${editing}/${slot}/${crypto.randomUUID()}-${safeName}`;
+		const { error } = await supabase.storage.from('college-logos').upload(path, file, {
+			contentType: file.type,
+			upsert: false,
+		});
+		if (error) {
+			E(error.message);
+			return;
+		}
+		const { data } = supabase.storage.from('college-logos').getPublicUrl(path);
+		const field = `photo_${slot}_url`;
+		F((current) => ({ ...current, [field]: data.publicUrl }));
+		N('Photo uploaded. Save the college record to apply the new photo.');
 	}
 	async function printPaymentReceipt(payment) {
 		const popup = window.open('', '_blank');
@@ -1492,11 +1914,8 @@ function App() {
 				].includes(k)
 			)
 				data[k] = v === true || v === 'true';
-			if (k === 'allowed_admission_types' && typeof v === 'string')
-				data[k] = v
-					.split(',')
-					.map((type) => type.trim())
-					.filter(Boolean);
+			if (k === 'allowed_admission_types')
+				data[k] = normalizeAdmissionTypes(v);
 			if (
 				[
 					'amount_paise',
@@ -1536,8 +1955,12 @@ function App() {
 							'file',
 							'photo',
 							'document',
+							'branch',
 						].includes(field.type) ||
 						(field.type === 'select' &&
+							(!Array.isArray(field.options) ||
+								field.options.some((option) => typeof option !== 'string'))) ||
+						(field.type === 'branch' &&
 							(!Array.isArray(field.options) ||
 								field.options.some((option) => typeof option !== 'string'))),
 				))
@@ -1648,6 +2071,10 @@ function App() {
 				!conditionMatches(f.visibility, applicationValues)
 			)
 				continue;
+			if (f.type === 'table') {
+				answers[f.key] = applicationValues[f.key] ?? [];
+				continue;
+			}
 			const control = formElement.elements.namedItem(f.key);
 			if (!control) {
 				await failWithCleanup(`The published form field "${f.label}" is invalid.`);
@@ -1708,6 +2135,23 @@ function App() {
 			}
 			answers[f.key] =
 				f.forceUppercase && typeof v === 'string' ? v.toUpperCase() : v;
+			if (f.type === 'branch') {
+				// A branch field stores the chosen branch with the application
+				// so that the admission team can use it directly.
+				const branchId = String(v ?? '').trim();
+				const knownBranches = published.courses?.branches ?? [];
+				if (branchId) {
+					if (
+						!knownBranches.some(
+							(branch) => branch.id === branchId && branch.active !== false,
+						)
+					) {
+						await failWithCleanup('Select a valid branch.');
+						return;
+					}
+					if (!answers.branch_id) answers.branch_id = branchId;
+				}
+			}
 		}
 		if (published.allowed_admission_types?.length > 1) {
 			const admissionType = applicationValues.admission_type;
@@ -1757,40 +2201,84 @@ function App() {
 		else refresh();
 	}
 	const [published, B] = useState(null);
+	const [publishedForms, setPublishedForms] = useState([]);
+	const [formTypeNames, setFormTypeNames] = useState({});
 	const [applicationValues, setApplicationValues] = useState({});
 	const [inquiryPrefillNotice, setInquiryPrefillNotice] = useState('');
+	// The answers that a fresh form starts with.
+	function defaultApplicationValues(form) {
+		return Object.fromEntries(
+			(form?.fields ?? []).map((field) => [
+				field.key,
+				field.type === 'table'
+					? Array.from({ length: Number(field.rows) > 0 ? Number(field.rows) : 5 }, () => ({
+							subject: '',
+							max_marks: '',
+							marks: '',
+						}))
+					: field.defaultValue ?? (field.type === 'checkbox' ? false : ''),
+			]),
+		);
+	}
+	// The text of a form in the selection list.
+	function formSelectionLabel(form) {
+		return [
+			form.title,
+			form.courses?.name,
+			form.academic_year,
+			formTypeNames[form.form_type_id],
+		]
+			.filter(Boolean)
+			.join(' · ');
+	}
 	useEffect(() => {
-		if (session && !admin)
-			supabase
-				.from('admission_forms')
-				.select('*,courses(name,branches(id,name,active))')
-				.eq('status', 'published')
-				.eq('enabled_for_students', true)
-				.order('created_at', { ascending: false })
-				.limit(1)
-				.then(({ data, error }) => {
-					if (error) E(error.message);
-					else {
-						const form = data?.[0] || null;
-						B(form);
-						setApplicationValues(
-							Object.fromEntries(
-								(form?.fields ?? []).map((field) => [
-									field.key,
-									field.defaultValue ?? (field.type === 'checkbox' ? false : ''),
-								]),
-							),
-						);
-					}
-				})
-				.catch((error) =>
-					E(
-						error instanceof Error
-							? error.message
-							: 'Could not load the admission form.',
-					),
+		if (!session || admin) return;
+		let cancelled = false;
+		supabase
+			.from('admission_forms')
+			.select('*,courses(name,branches(id,name,active))')
+			.eq('status', 'published')
+			.eq('enabled_for_students', true)
+			.order('created_at', { ascending: false })
+			.then(({ data, error }) => {
+				if (cancelled) return;
+				if (error) {
+					E(error.message);
+					return;
+				}
+				// Every published form is offered, so the student can choose the
+				// one that belongs to the course and the admission cycle.
+				const forms = data ?? [];
+				setPublishedForms(forms);
+				B((current) =>
+					forms.find((form) => form.id === current?.id) ?? forms[0] ?? null,
 				);
+			})
+			.catch((error) =>
+				E(
+					error instanceof Error
+						? error.message
+						: 'Could not load the admission form.',
+				),
+			);
+		supabase
+			.from('form_types')
+			.select('id,name')
+			.then(({ data, error }) => {
+				if (cancelled || error) return;
+				setFormTypeNames(
+					Object.fromEntries((data ?? []).map((type) => [type.id, type.name])),
+				);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
 	}, [session, admin]);
+	// A new form starts with its own default answers.
+	useEffect(() => {
+		setApplicationValues(defaultApplicationValues(published));
+	}, [published?.id]);
 	useEffect(() => {
 		let cancelled = false;
 		async function prefillFromInquiry() {
@@ -1817,6 +2305,18 @@ function App() {
 			setApplicationValues((current) => {
 				const next = { ...current };
 				for (const field of published.fields ?? []) {
+					if (field.type === 'branch') {
+						// A branch field keeps the branch id, so the branch name of
+						// the inquiry is resolved first.
+						const branch = (published.courses?.branches ?? []).find(
+							(item) =>
+								item.active !== false &&
+								item.name.trim().toLowerCase() ===
+									String(data.branch_interest ?? '').trim().toLowerCase(),
+						);
+						if (branch && !next[field.key]) next[field.key] = branch.id;
+						continue;
+					}
 					const value = inquiryValueForField(field, data);
 					if (value && (next[field.key] == null || next[field.key] === '')) {
 						next[field.key] = value;
@@ -1893,7 +2393,7 @@ function App() {
 				<header className="module-home-header">
 					<div>
 						<div className="module-eyebrow">SVIT ERP</div>
-						<h1>Main Dashboard Structure</h1>
+						<h1>Main Dashboard</h1>
 					</div>
 					{session ? (
 						<div className="account">
@@ -1907,13 +2407,26 @@ function App() {
 							<button
 								type="button"
 								className="primary"
-								onClick={() => choosePortal('admissions')}
+								onClick={() => openLoginPage()}
 							>
 								🔑 Sign In to Workspace
 							</button>
 						</div>
 					)}
 				</header>
+				{session && (
+					<Suspense fallback={<div className="setup">Loading the dashboard…</div>}>
+						<ErpDashboard
+							access={erpAccess}
+							profile={profile}
+							onNavigate={(moduleId) => {
+								const module = erpModuleById[moduleId];
+								if (!module) return;
+								choosePortal(module.portal, erpModuleHomePage(module));
+							}}
+						/>
+					</Suspense>
+				)}
 				<section className="module-group">
 					<h2>
 						<span aria-hidden="true">🎓</span> College Management System
@@ -1934,7 +2447,9 @@ function App() {
 									type="button"
 									className="module-card"
 									key={card.id}
-									onClick={() => choosePortal(card.id)}
+									onClick={() =>
+									session ? choosePortal(card.id) : openLoginPage(card.id)
+								}
 								>
 									<span className="module-icon" aria-hidden="true">
 										{card.icon}
@@ -1958,97 +2473,63 @@ function App() {
 						</div>
 					)}
 				</section>
+				<section className="module-group">
+					<h2>
+						<span aria-hidden="true">🧩</span> ERP modules
+					</h2>
+					{session && staffAccessLoaded ? (
+						<Suspense fallback={<div className="setup">Loading the modules…</div>}>
+							<ErpModuleGrid
+								modules={accessibleErpModules}
+								onOpen={(moduleId) => {
+									const module = erpModuleById[moduleId];
+									if (!module) return;
+									choosePortal(module.portal, erpModuleHomePage(module));
+								}}
+							/>
+						</Suspense>
+					) : (
+						<p className="hint">Sign in to open the ERP modules.</p>
+					)}
+					{session &&
+						staffAccessLoaded &&
+						!accessibleErpModules.length && (
+							<p className="hint">
+								No ERP module is open for your account yet.
+							</p>
+						)}
+				</section>
 				{err && <div className="error">{err}</div>}
 			</div>
 		);
 	if (!session)
 		return (
-			<div className="authwrap">
-				<div className="authbrand">
-					<div className="logo">S</div>
-					<p className="module-eyebrow">SVIT ERP MODULE LOGIN</p>
-					<h1>{moduleById[activePortal]?.title || 'Module Login'}</h1>
-					<p>
-						{moduleById[activePortal]?.description ||
-							'Sign in to continue to your workspace.'}
-					</p>
-					<div className="authart">
-						{moduleById[activePortal]?.title || 'SVIT ERP'}
-					</div>
-				</div>
-				<form className="authcard" onSubmit={login}>
-					<h2>{signup ? 'Student Registration' : 'Welcome back'}</h2>
-					<p>
-						Sign in to{' '}
-						{moduleById[activePortal]?.title || 'your selected module'}
-					</p>
-					{signup && (
-						<label>
-							Full Name
-							<input
-								required
-								value={auth.full_name}
-								onChange={(e) => A({ ...auth, full_name: e.target.value })}
-							/>
-						</label>
-					)}
-					<label>
-						Email
-						<input
-							type="email"
-							required
-							value={auth.email}
-							onChange={(e) => A({ ...auth, email: e.target.value })}
-						/>
-					</label>
-					<label>
-						Password
-						<input
-							type="password"
-							minLength="8"
-							required
-							value={auth.password}
-							onChange={(e) => A({ ...auth, password: e.target.value })}
-						/>
-					</label>
-					{err && <div className="error">{err}</div>}
-					{notice && <div className="success">{notice}</div>}
-					<button className="primary">
-						{signup ? 'Create student account' : 'Sign In'}
-					</button>
-					{activePortal === 'admissions' && (
-						<button
-							type="button"
-							className="link"
-							onClick={() => {
-								SU(!signup);
-								E('');
-							}}
-						>
-							{signup
-								? 'Already registered? Sign in'
-								: 'New student? Register here'}
-						</button>
-					)}
-					<button
-						type="button"
-						className="link"
-						onClick={() => {
-							setActivePortal('');
-							sessionStorage.removeItem('svit-active-portal');
-							SU(false);
-							E('');
-						}}
-					>
-						← Choose another module
-					</button>
-					{activePortal === 'admissions' && (
-						<a className="link" href="#/inquiry">
-							Ask about admission
-						</a>
-					)}
-				</form>
-			</div>
+			<LoginPage
+				modules={loginModules}
+				branding={collegeBranding}
+				selectedModuleId={selectedModuleId}
+				onSelectModule={setSelectedModuleId}
+				error={err}
+				notice={notice}
+				warning={loginModuleWarning}
+				busy={authBusy}
+				signup={signup}
+				onToggleSignup={() => {
+					SU(!signup);
+					E('');
+				}}
+				onLogin={handleLogin}
+				onSignup={handleSignup}
+				onForgotPassword={handleForgotPassword}
+				onResetPassword={handleResetPassword}
+				recoveryMode={recoveryMode}
+				onBack={() => {
+					setActivePortal('');
+					sessionStorage.removeItem('svit-active-portal');
+					SU(false);
+					E('');
+				}}
+			/>
 		);
 	if (!profile || !staffAccessLoaded)
 		return <div className="setup">Loading account access…</div>;
@@ -2080,12 +2561,53 @@ function App() {
 			: modules.filter(([name]) =>
 					['Dashboard', 'My Applications', 'Documents'].includes(name),
 				);
-	const nav =
-		activePortal === 'super_admin'
-			? roleNav
-			: roleNav.filter(([name]) =>
-					moduleById[activePortal]?.pages?.includes(name),
-				);
+	// The ERP pages that the signed-in account may open. The permission comes
+	// from the module matrix of the database.
+	const erpNavEntries = modules.filter(([name]) => {
+		const entry = erpPageMap.get(name);
+		if (!entry) return false;
+		return modulePermissions(erpAccess, entry.module.id).view;
+	});
+	const mergedNav = [];
+	for (const [name, icon] of [...roleNav, ...erpNavEntries]) {
+		if (!mergedNav.some(([existing]) => existing === name)) {
+			mergedNav.push([name, icon]);
+		}
+	}
+	// The module workspaces that the signed-in account may open in the
+	// workspace that is open. Every module shows its own title, so the super
+	// admin always knows which module he is looking at.
+	const erpWorkspaceEntries = erpModules
+		.filter((module) => modulePermissions(erpAccess, module.id).view)
+		.filter(
+			(module) =>
+				activePortal === 'super_admin' || module.portal === activePortal,
+		)
+		.map((module) => [
+			erpModuleRoute(module.id),
+			module.icon ?? '\u{1F4CB}',
+			module.title,
+		]);
+	const nav = [
+		// The tab that takes the super admin back to the main page.
+		['__main__', '\u2302', 'Main Dashboard'],
+		...(activePortal === 'super_admin'
+			? [
+					...mergedNav.filter(
+						([name]) =>
+							name === 'Super Admin Dashboard' ||
+							!erpPageMap.has(name),
+					),
+					['__erp_modules__', 'ERP modules'],
+					...erpWorkspaceEntries,
+				]
+			: [
+					...mergedNav.filter(([name]) =>
+						moduleById[activePortal]?.pages?.includes(name),
+					),
+					...erpWorkspaceEntries,
+				]),
+	];
 	const visible = rows.filter((r) =>
 		JSON.stringify(r).toLowerCase().includes(search.toLowerCase()),
 	);
@@ -2154,21 +2676,31 @@ function App() {
 					{moduleById[activePortal]?.title || 'WORKSPACE'}
 				</div>
 				<nav>
-					{nav.map(([n, ico]) => (
-						<button
-							key={n}
-							className={page === n ? 'selected' : ''}
-							onClick={() => {
-								Q(n);
-								G(null);
-								U('');
-								E('');
-							}}
-						>
-							<span>{ico === 'LayoutDashboard' ? '\u25EB' : ico}</span>
-							{n}
-						</button>
-					))}
+					{nav.map(([n, ico, label]) =>
+						n === '__erp_modules__' ? (
+							<div className="navsection" key={n}>
+								{ico}
+							</div>
+						) : (
+							<button
+								key={n}
+								className={page === n ? 'selected' : ''}
+								onClick={() => {
+									if (n === '__main__') {
+										goToMainPage();
+										return;
+									}
+									Q(n);
+									G(null);
+									U('');
+									E('');
+								}}
+							>
+								<span>{ico === 'LayoutDashboard' ? '\u25EB' : ico}</span>
+								{label ?? n}
+							</button>
+						),
+					)}
 				</nav>
 				<div className="sidefoot">
 					SVIT • Academic Administration
@@ -2180,9 +2712,9 @@ function App() {
 				<header>
 					<div>
 						<small>
-							SVIT / {moduleById[activePortal]?.title} / {page}
+							SVIT / {moduleById[activePortal]?.title} / {pageLabel(page)}
 						</small>
-						<h1>{page}</h1>
+						<h1>{pageLabel(page)}</h1>
 					</div>
 					<div className="account">
 						<div className="avatar">
@@ -2192,6 +2724,22 @@ function App() {
 							<b>{profile?.full_name || session.user.email}</b>
 							<small>{profile?.role || 'student'}</small>
 						</div>
+						<Suspense fallback={null}>
+							<NotificationCenter
+								onNavigate={(moduleId) => {
+									const module = erpModuleById[moduleId];
+									if (!module) return;
+									choosePortal(module.portal, erpModuleHomePage(module));
+								}}
+							/>
+						</Suspense>
+						<button
+							type="button"
+							className="erp-back-main"
+							onClick={goToMainPage}
+						>
+							← Main Dashboard
+						</button>
 						<button onClick={() => void signOut()}>Sign out</button>
 					</div>
 				</header>
@@ -2209,54 +2757,29 @@ function App() {
 				)}
 				{page === 'Dashboard' ? (
 					<>
-						<div className="welcome">
-							<div>
-								<span>{moduleById[activePortal]?.title?.toUpperCase()}</span>
-								<h2>Welcome to SVIT ERP</h2>
-								<p>
-									{moduleById[activePortal]?.description}
-								</p>
-							</div>
-							<div className="orb">✦</div>
-						</div>
-						<div className="stats">
-							{(admin
-								? [
-										[
-											'Applications',
-											stats.applications,
-											'\u{1F468}\u200D\u{1F393}',
-										],
-										['Courses', stats.courses, '\u{1F4DA}'],
-										['Branches', stats.branches, '\u{1F33F}'],
-										['Fee Structures', stats.fee_structures, '\u20B9'],
-										['Payments', stats.payments, '\u{1F4B3}'],
-									]
-								: [
-										[
-											'My Applications',
-											stats.applications,
-											'\u{1F468}\u200D\u{1F393}',
-										],
-									]
-							).map(([k, v, i]) => (
-								<div className="stat" key={k}>
-									<span>{i}</span>
-									<strong>{v ?? '\u2014'}</strong>
-									<small>{k}</small>
-								</div>
-							))}
-						</div>
-						{activePortal === 'super_admin' && (
+						{activePortal === 'super_admin' ? (
 							<>
-								<h3>Super Admin Modules</h3>
+								<Suspense fallback={<div className="setup">Loading the dashboard…</div>}>
+									<ErpDashboard
+										access={erpAccess}
+										profile={profile}
+										onNavigate={(moduleId) => {
+											const module = erpModuleById[moduleId];
+											if (!module) return;
+											choosePortal(module.portal, erpModuleHomePage(module));
+										}}
+									/>
+								</Suspense>
+								<h3>ERP modules</h3>
 								<div className="tiles">
-									{superAdminModules.map((module) => (
+									{superAdminErpModules.map((module) => (
 										<button
-											key={module.title}
+											key={module.id}
 											type="button"
 											className="tile"
-											onClick={() => Q(module.entryPage)}
+											onClick={() =>
+												choosePortal(module.portal, erpModuleHomePage(module))
+											}
 										>
 											<span>{module.icon}</span>
 											<b>{module.title}</b>
@@ -2265,28 +2788,61 @@ function App() {
 									))}
 								</div>
 							</>
+						) : (
+							<>
+								<div className="welcome">
+									<div>
+										<span>{moduleById[activePortal]?.title?.toUpperCase()}</span>
+										<h2>Welcome to SVIT ERP</h2>
+										<p>
+											{moduleById[activePortal]?.description}
+										</p>
+									</div>
+									<div className="orb">✦</div>
+								</div>
+								<div className="stats">
+									{(admin
+										? [
+												[
+													'Applications',
+													stats.applications,
+													'\u{1F468}\u200D\u{1F393}',
+												],
+												['Courses', stats.courses, '\u{1F4DA}'],
+												['Branches', stats.branches, '\u{1F33F}'],
+												['Fee Structures', stats.fee_structures, '\u20B9'],
+												['Payments', stats.payments, '\u{1F4B3}'],
+											]
+										: [
+												[
+													'My Applications',
+													stats.applications,
+													'\u{1F468}\u200D\u{1F393}',
+												],
+											]
+									).map(([k, v, i]) => (
+										<div className="stat" key={k}>
+											<span>{i}</span>
+											<strong>{v ?? '\u2014'}</strong>
+											<small>{k}</small>
+										</div>
+									))}
+								</div>
+								<h3>Quick Management Access</h3>
+								<div className="tiles">
+									{nav
+										.filter(([n]) => n !== 'Dashboard')
+										.filter(([name]) => !superAdminModulePages.has(name))
+										.map(([n, i]) => (
+											<button key={n} className="tile" onClick={() => Q(n)}>
+												<span>{i}</span>
+												<b>{n}</b>
+												<small>Open module →</small>
+											</button>
+										))}
+								</div>
+							</>
 						)}
-						<h3>
-							{activePortal === 'super_admin'
-								? 'Administration Tools'
-								: 'Quick Management Access'}
-						</h3>
-						<div className="tiles">
-							{nav
-								.filter(([n]) => n !== 'Dashboard')
-								.filter(
-									([name]) =>
-										activePortal !== 'super_admin' ||
-										!superAdminModulePages.has(name),
-								)
-								.map(([n, i]) => (
-									<button key={n} className="tile" onClick={() => Q(n)}>
-										<span>{i}</span>
-										<b>{n}</b>
-										<small>Open module →</small>
-									</button>
-								))}
-						</div>
 					</>
 				) : page === 'Report Builder' &&
 				  canAccessPage('Report Builder') &&
@@ -2504,6 +3060,32 @@ function App() {
 									onSubmit={apply}
 									className={`admission-application-form application-layout-${published.form_layout || 'cards'}`}
 								>
+									{publishedForms.length > 1 && (
+										<label className="admission-field">
+											<span>Admission Form *</span>
+											<select
+												name="__admission_form"
+												required
+												value={published?.id ?? ''}
+												onChange={(event) => {
+													const next =
+														publishedForms.find(
+															(form) => form.id === event.target.value,
+														) ?? null;
+													B(next);
+												}}
+											>
+												{publishedForms.map((form) => (
+													<option key={form.id} value={form.id}>
+														{formSelectionLabel(form)}
+													</option>
+												))}
+											</select>
+											<small className="hint">
+												Choose the admission form you want to apply with.
+											</small>
+										</label>
+									)}
 									{inquiryPrefillNotice && (
 										<p className="hint" role="status">
 											{inquiryPrefillNotice}
@@ -2545,7 +3127,9 @@ function App() {
 											>
 												<option value="">Select admission type</option>
 												{published.allowed_admission_types.map((type) => (
-													<option key={type} value={type}>{type}</option>
+													<option key={type} value={type}>
+														{admissionTypeLabel(type)}
+													</option>
 												))}
 											</select>
 										</label>
@@ -2612,6 +3196,7 @@ function App() {
 																</span>
 																<AdmissionField
 																	field={field}
+																	branches={published.courses?.branches ?? []}
 																		value={
 																			field.copyFromCheckbox &&
 																			applicationValues[`${field.key}__copy_enabled`]
@@ -2629,6 +3214,24 @@ function App() {
 																		}))
 																	}
 																/>
+																{fieldHasOtherOption(field) &&
+																	String(applicationValues[field.key] ?? '')
+																		.trim()
+																		.toLowerCase() === 'other' && (
+																		<label className="admission-other-value">
+																			<span>{field.label} (Other)</span>
+																			<input
+																				type="text"
+																				value={applicationValues[otherValueKey(field.key)] ?? ''}
+																				onChange={(event) =>
+																					setApplicationValues((current) => ({
+																						...current,
+																						[otherValueKey(field.key)]: event.target.value,
+																					}))
+																				}
+																			/>
+																		</label>
+																	)}
 																{field.copyFromCheckbox && field.copyFromFieldKey && (
 																	<label className="admission-copy-from">
 																		<input
@@ -2657,7 +3260,8 @@ function App() {
 							) : (
 								<p>
 									No published form available. Please contact the admission
-									office.
+									office. A form has to be published and enabled for students
+									before it can be applied with.
 								</p>
 							)}
 						</section>
@@ -2864,10 +3468,11 @@ function App() {
 							</table>
 						</div>
 					</section>
-				) : ['Form Builder', 'Dynamic Forms'].includes(page) && admin ? (
+				) : ['Form Builder', 'Dynamic Forms'].includes(page) &&
+				  canAccessPage('Dynamic Forms') ? (
 					<Suspense fallback={<section className="panel">Loading Form Builder...</section>}>
 						<FormBuilderErrorBoundary>
-							<DynamicFormBuilder />
+							<DynamicFormBuilder canManage={admin} />
 						</FormBuilderErrorBoundary>
 					</Suspense>
 				) : page === 'Student Profile Schema' && admin ? (
@@ -2897,6 +3502,46 @@ function App() {
 							canDecide={canDecideAdmissions}
 							canManageIntakes={hasPermission('intakes.manage')}
 						/>
+					</Suspense>
+				) : page === 'Super Admin Dashboard' ? (
+					<Suspense fallback={<section className="panel">Loading the admin console...</section>}>
+						<ErpAdminSettings canManage={admin} />
+					</Suspense>
+				) : erpPageMap.has(page) && modulePermissions(erpAccess, erpPageMap.get(page).module.id).view ? (
+					<Suspense fallback={<section className="panel">Loading the module...</section>}>
+						{erpPageMap.get(page).kind === 'module' ? (
+							<ErpModuleWorkspace
+								module={erpPageMap.get(page).module}
+								permissions={modulePermissions(
+									erpAccess,
+									erpPageMap.get(page).module.id,
+								)}
+								canManage={admin}
+								onBackToMain={goToMainPage}
+								onOpenLegacyPage={(title) => {
+									Q(title);
+									G(null);
+									U('');
+									E('');
+								}}
+							/>
+						) : (
+							<ErpModuleScreen
+								module={erpPageMap.get(page).module}
+								tableKey={erpPageMap.get(page).tableKey}
+								permissions={modulePermissions(
+									erpAccess,
+									erpPageMap.get(page).module.id,
+								)}
+								canManage={admin}
+								onNavigate={(tableKey) => {
+									const table = erpPageMap.get(page).module.tables?.find(
+										(entry) => entry.key === tableKey,
+									);
+									if (table) Q(table.title);
+								}}
+							/>
+						)}
 					</Suspense>
 				) : table && canReadCurrentMaster ? (
 					<section className="panel">
@@ -2958,7 +3603,8 @@ function App() {
 														<div className="branch-intake-head-row" key={index}>
 															<input
 																aria-label={`Intake heading ${index + 1}`}
-																placeholder="e.g. ACPC / Management / TFWS"
+																placeholder="e.g. ACPC / Management / TFWS / D2D / C2D / Lateral Entry"
+																list="intake-head-options"
 																maxLength={80}
 																value={head.name ?? ''}
 																onChange={(event) =>
@@ -2972,6 +3618,14 @@ function App() {
 																	})
 																}
 															/>
+															<datalist id="intake-head-options">
+																<option value="ACPC" />
+																<option value="Management" />
+																<option value="TFWS" />
+																<option value="D2D" />
+																<option value="C2D" />
+																<option value="Lateral Entry" />
+															</datalist>
 															<input
 																aria-label={`Seats for intake heading ${index + 1}`}
 																type="number"
@@ -3028,27 +3682,33 @@ function App() {
 													)} / {Number(form.intake) || 0} seats
 												</small>
 											</div>
-										) : page === 'Colleges' && k === 'logo_url' ? (
+										) : ((page === 'Colleges' || page === 'Universities') && (k === 'logo_url' || /^photo_[1-4]_url$/.test(k))) ? (
 											<>
 												<input
 													type="url"
 													value={form[k] ?? ''}
 													onChange={(e) => F({ ...form, [k]: e.target.value })}
-													placeholder="Uploaded logo URL"
+													placeholder="Uploaded image URL"
 												/>
 												<input
 													type="file"
 													accept="image/png,image/jpeg,image/webp"
 													disabled={editing === 'new'}
-													aria-label="Upload college logo"
+													aria-label={`Upload ${page === 'Universities' ? 'university logo' : k === 'logo_url' ? 'college logo' : 'college photo'}`}
 													onChange={(event) => {
 														const file = event.target.files?.[0];
 														event.target.value = '';
-														if (file) void uploadCollegeLogo(file);
+														if (!file) return;
+														if (page === 'Universities') void uploadUniversityLogo(file);
+														else if (k === 'logo_url') void uploadCollegeLogo(file);
+														else {
+															const slot = (k.match(/photo_(\\d)_url/) || [])[1];
+															if (slot) void uploadCollegePhoto(slot, file);
+														}
 													}}
 												/>
 												{editing === 'new' && (
-													<small>Save this college first, then upload its logo.</small>
+													<small>Save this record first, then upload its image.</small>
 												)}
 												{form[k] && (
 													<img
@@ -3266,6 +3926,8 @@ function App() {
 												<td key={f} title={String(x[f] ?? '')}>
 													{f === 'amount_paise'
 														? money(x[f])
+														: f === 'allowed_admission_types' && Array.isArray(x[f])
+															? x[f].map(admissionTypeLabel).join(', ') || '—'
 														: f === 'intake_heads' && Array.isArray(x[f])
 															? x[f].map((head) => `${head.name}: ${head.seats}`).join(', ') || '—'
 														: referenceTables[f]

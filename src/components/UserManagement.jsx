@@ -6,7 +6,23 @@ import {
 	accessPermissions,
 	emptyStaffForm,
 	availableModulePortals,
+	existingDashboardRoutes,
+	existingPageNames,
 } from '../lib/accessControl';
+
+const STUDENT_ROLE_CODE = 'student';
+
+const emptyLoginModule = {
+	id: '',
+	name: '',
+	description: '',
+	icon: '',
+	portal_id: '',
+	entry_page: 'Dashboard',
+	display_order: 100,
+	enabled: true,
+	allowed_roles: [],
+};
 
 const API_BASE =
 	import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') ||
@@ -55,6 +71,10 @@ export default function UserManagement() {
 	const [busy, setBusy] = useState(false);
 	const [loading, setLoading] = useState(true);
 	const [roleGrants, setRoleGrants] = useState(new Map());
+	const [allRoles, setAllRoles] = useState([]);
+	const [loginModules, setLoginModules] = useState([]);
+	const [moduleForm, setModuleForm] = useState(emptyLoginModule);
+	const [editingModuleId, setEditingModuleId] = useState(null);
 
 	async function load() {
 		try {
@@ -74,6 +94,7 @@ export default function UserManagement() {
 			const availableRoles = (rolesResult.data ?? []).filter(
 				(role) => role.code !== 'admin',
 			);
+			setAllRoles(rolesResult.data ?? []);
 			const includesFaculty = availableRoles.some(
 				(role) => role.code === 'faculty',
 			);
@@ -141,6 +162,22 @@ export default function UserManagement() {
 				setRolePermissions(grants.filter((grant) => !grant.startsWith('page:')));
 			}
 			setRoleGrants(rolePermissionsByCode);
+
+			// The login modules live in their own table. A missing table means
+			// migration 034 has not been applied yet.
+			const loginModulesResult = await supabase
+				.from('login_modules')
+				.select('*')
+				.order('display_order', { ascending: true });
+			if (loginModulesResult.error) {
+				if (['PGRST205', '42P01', 'PGRST204'].includes(loginModulesResult.error.code)) {
+					setMessage(
+						'Login module management needs migration 034_dynamic_login_modules.sql. Apply it in Supabase and reload.',
+					);
+				}
+			} else {
+				setLoginModules(loginModulesResult.data ?? []);
+			}
 		} catch (error) {
 			setMessage(getErrorMessage(error));
 		} finally {
@@ -357,6 +394,127 @@ export default function UserManagement() {
 			}
 		} catch (err) {
 			setMessage(err.message);
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	function loginModuleRoleLabel(code) {
+		if (code === STUDENT_ROLE_CODE) return 'Student (portal account)';
+		return allRoles.find((role) => role.code === code)?.label || code;
+	}
+
+	function roleExists(code) {
+		return (
+			code === STUDENT_ROLE_CODE ||
+			allRoles.some((role) => role.code === code)
+		);
+	}
+
+	function routeExists(portalId) {
+		return existingDashboardRoutes.some((route) => route.id === portalId);
+	}
+
+	function pageExists(pageName) {
+		return !pageName || existingPageNames.includes(pageName);
+	}
+
+	function resetModuleForm() {
+		setModuleForm(emptyLoginModule);
+		setEditingModuleId(null);
+	}
+
+	function editLoginModule(module) {
+		setEditingModuleId(module.id);
+		setModuleForm({
+			id: module.id,
+			name: module.name || '',
+			description: module.description || '',
+			icon: module.icon || '',
+			portal_id: module.portal_id || '',
+			entry_page: module.entry_page || 'Dashboard',
+			display_order: module.display_order ?? 100,
+			enabled: module.enabled !== false,
+			allowed_roles: Array.isArray(module.allowed_roles)
+				? [...module.allowed_roles]
+				: [],
+		});
+		setMessage('');
+	}
+
+	async function saveLoginModule(event) {
+		event.preventDefault();
+		if (busy) return;
+		const id = (moduleForm.id || '').trim().toLowerCase();
+		if (!editingModuleId && !/^[a-z][a-z0-9_]{1,39}$/.test(id)) {
+			setMessage(
+				'Module id must be 2 to 40 lowercase letters, numbers, or underscores.',
+			);
+			return;
+		}
+		if (!moduleForm.name.trim()) {
+			setMessage('Enter the module name.');
+			return;
+		}
+		if (!moduleForm.portal_id) {
+			setMessage('Assign an existing dashboard route to the module.');
+			return;
+		}
+		setBusy(true);
+		setMessage('');
+		try {
+			const { error } = await supabase.rpc('admin_save_login_module', {
+				p_id: editingModuleId || id,
+				p_name: moduleForm.name.trim(),
+				p_description: moduleForm.description.trim(),
+				p_icon: moduleForm.icon.trim(),
+				p_portal_id: moduleForm.portal_id,
+				p_entry_page: moduleForm.entry_page || 'Dashboard',
+				p_display_order: Number(moduleForm.display_order) || 100,
+				p_enabled: Boolean(moduleForm.enabled),
+				p_allowed_roles: moduleForm.allowed_roles || [],
+			});
+			if (error) throw error;
+			setMessage(
+				`Login module "${moduleForm.name.trim()}" ${
+					editingModuleId ? 'updated' : 'added'
+				}.`,
+			);
+			resetModuleForm();
+			await load();
+		} catch (error) {
+			setMessage(getErrorMessage(error));
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	async function toggleLoginModule(module) {
+		if (busy) return;
+		setBusy(true);
+		try {
+			const { error } = await supabase.rpc('admin_save_login_module', {
+				p_id: module.id,
+				p_name: module.name,
+				p_description: module.description || '',
+				p_icon: module.icon || '',
+				p_portal_id: module.portal_id,
+				p_entry_page: module.entry_page || 'Dashboard',
+				p_display_order: module.display_order ?? 100,
+				p_enabled: !module.enabled,
+				p_allowed_roles: Array.isArray(module.allowed_roles)
+					? module.allowed_roles
+					: [],
+			});
+			if (error) throw error;
+			setMessage(
+				`Login module "${module.name}" ${
+					module.enabled ? 'disabled' : 'enabled'
+				}. Users and records are not changed.`,
+			);
+			await load();
+		} catch (error) {
+			setMessage(getErrorMessage(error));
 		} finally {
 			setBusy(false);
 		}
@@ -789,6 +947,287 @@ export default function UserManagement() {
 						);
 					})}
 				</div>
+			</section>
+			<section
+				className="editgrid"
+				style={{ marginTop: 24, borderTop: '2px solid #e2e8f0', paddingTop: 20 }}
+			>
+				<h3>🔑 Login Module Management (Dynamic Role-Based Login)</h3>
+				<p style={{ gridColumn: '1 / -1', color: '#475569', margin: '0 0 12px' }}>
+					The login modules listed in the "Select Login Module" dropdown of the
+					login page are stored in the database. A module points at an existing
+					dashboard route and at the user roles that may use it. Disabling a
+					module only removes it from the public dropdown, it never deletes
+					users or records.
+				</p>
+				{loginModules.length > 0 && (
+					<div
+						style={{
+							gridColumn: '1 / -1',
+							display: 'grid',
+							gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+							gap: 12,
+						}}
+					>
+						{loginModules.map((module) => {
+							const route = existingDashboardRoutes.find(
+								(item) => item.id === module.portal_id,
+							);
+							const missingRoles = (module.allowed_roles || []).filter(
+								(code) => !roleExists(code),
+							);
+							return (
+								<div
+									key={module.id}
+									style={{
+										display: 'flex',
+										flexDirection: 'column',
+										gap: 8,
+										padding: '12px 16px',
+										background: '#f8fafc',
+										borderRadius: 8,
+										border: '1px solid #cbd5e1',
+									}}
+								>
+									<div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+										<strong style={{ fontSize: '0.95rem' }}>
+											{module.icon} {module.name}
+										</strong>
+										<span
+											className="pill"
+											style={{
+												fontSize: '0.72rem',
+												padding: '2px 8px',
+												background: module.enabled ? '#e8f8ed' : '#ffe9e9',
+												color: module.enabled ? '#166b3d' : '#9c2532',
+											}}
+										>
+											{module.enabled ? 'Enabled' : 'Disabled'}
+										</span>
+									</div>
+									<small style={{ color: '#64748b' }}>
+										Route: {route ? `${route.title} (${module.portal_id})` : module.portal_id}
+										{module.entry_page ? ` → ${module.entry_page}` : ''} · Order{' '}
+										{module.display_order}
+									</small>
+									<small style={{ color: '#64748b' }}>
+										Roles:{' '}
+										{(module.allowed_roles || []).length
+											? module.allowed_roles.map(loginModuleRoleLabel).join(', ')
+											: 'All signed-in roles'}
+									</small>
+									{!route && (
+										<small style={{ color: '#9c2532' }}>
+											Dashboard route not found. Assign an existing route before this
+											module is used.
+										</small>
+									)}
+									{!pageExists(module.entry_page) && (
+										<small style={{ color: '#9c2532' }}>
+											Entry page "{module.entry_page}" does not exist.
+										</small>
+									)}
+									{missingRoles.length > 0 && (
+										<small style={{ color: '#9c2532' }}>
+											Role not defined: {missingRoles.join(', ')}. Create it under
+											Dynamic role access.
+										</small>
+									)}
+									<div style={{ display: 'flex', gap: 8 }}>
+										<button type="button" onClick={() => editLoginModule(module)}>
+											Edit
+										</button>
+										<button
+											type="button"
+											disabled={busy}
+											onClick={() => void toggleLoginModule(module)}
+										>
+											{module.enabled ? 'Disable' : 'Enable'}
+										</button>
+									</div>
+								</div>
+							);
+						})}
+					</div>
+				)}
+				<form
+					className="editgrid"
+					style={{
+						gridColumn: '1 / -1',
+						margin: 0,
+						background: '#fff',
+					}}
+					onSubmit={saveLoginModule}
+				>
+					<h3>
+						{editingModuleId ? `Edit login module: ${editingModuleId}` : 'Add login module'}
+					</h3>
+					{!editingModuleId && (
+						<label>
+							Module id
+							<input
+								required
+								pattern="[a-z][a-z0-9_]{1,39}"
+								placeholder="admission_staff"
+								value={moduleForm.id}
+								onChange={(event) =>
+									setModuleForm({ ...moduleForm, id: event.target.value })
+								}
+							/>
+							<small style={{ fontWeight: 400, textTransform: 'none' }}>
+								Lowercase letters, numbers and underscores. It cannot be changed later.
+							</small>
+						</label>
+					)}
+					<label>
+						Module name
+						<input
+							required
+							value={moduleForm.name}
+							onChange={(event) =>
+								setModuleForm({ ...moduleForm, name: event.target.value })
+							}
+						/>
+					</label>
+					<label>
+						Description
+						<input
+							value={moduleForm.description}
+							onChange={(event) =>
+								setModuleForm({ ...moduleForm, description: event.target.value })
+							}
+						/>
+					</label>
+					<label>
+						Icon
+						<input
+							maxLength="4"
+							placeholder="🎓"
+							value={moduleForm.icon}
+							onChange={(event) =>
+								setModuleForm({ ...moduleForm, icon: event.target.value })
+							}
+						/>
+					</label>
+					<label>
+						Existing dashboard route
+						<select
+							required
+							value={moduleForm.portal_id}
+							onChange={(event) =>
+								setModuleForm({ ...moduleForm, portal_id: event.target.value })
+							}
+						>
+							<option value="">Select an existing route</option>
+							{existingDashboardRoutes.map((route) => (
+								<option key={route.id} value={route.id}>
+									{route.title} ({route.id})
+								</option>
+							))}
+						</select>
+					</label>
+					<label>
+						Entry page
+						<select
+							value={moduleForm.entry_page}
+							onChange={(event) =>
+								setModuleForm({ ...moduleForm, entry_page: event.target.value })
+							}
+						>
+							<option value="Dashboard">Dashboard</option>
+							{existingPageNames
+								.filter((pageName) => pageName !== 'Dashboard')
+								.map((pageName) => (
+									<option key={pageName} value={pageName}>
+										{pageName}
+									</option>
+								))}
+						</select>
+					</label>
+					<label>
+						Display order
+						<input
+							type="number"
+							min="1"
+							step="1"
+							value={moduleForm.display_order}
+							onChange={(event) =>
+								setModuleForm({
+									...moduleForm,
+									display_order: event.target.value,
+								})
+							}
+						/>
+					</label>
+					<label>
+						Status
+						<select
+							value={String(moduleForm.enabled)}
+							onChange={(event) =>
+								setModuleForm({
+									...moduleForm,
+									enabled: event.target.value === 'true',
+								})
+							}
+						>
+							<option value="true">Enabled</option>
+							<option value="false">Disabled</option>
+						</select>
+					</label>
+					<fieldset
+						className="access-scope-options"
+						style={{ gridColumn: '1 / -1' }}
+					>
+						<legend>User roles that may use this module</legend>
+						<div>
+							{[
+								{ code: STUDENT_ROLE_CODE, label: 'Student (portal account)' },
+								...allRoles.map((role) => ({
+									code: role.code,
+									label: role.label,
+								})),
+							].map((role) => (
+								<label key={role.code}>
+									<input
+										type="checkbox"
+										checked={moduleForm.allowed_roles.includes(role.code)}
+										onChange={() =>
+											setModuleForm({
+												...moduleForm,
+												allowed_roles: moduleForm.allowed_roles.includes(
+													role.code,
+												)
+													? moduleForm.allowed_roles.filter(
+															(code) => code !== role.code,
+														)
+													: [...moduleForm.allowed_roles, role.code],
+											})
+										}
+									/>
+									{role.label} ({role.code})
+								</label>
+							))}
+						</div>
+						<small style={{ fontWeight: 400, textTransform: 'none' }}>
+							Leave every role unchecked to allow all signed-in accounts. A
+							super administrator can always use any module.
+						</small>
+					</fieldset>
+					<div className="actions">
+						<button className="primary" disabled={busy}>
+							{busy
+								? 'Saving...'
+								: editingModuleId
+									? 'Update login module'
+									: 'Add login module'}
+						</button>
+						{editingModuleId && (
+							<button type="button" disabled={busy} onClick={resetModuleForm}>
+								Cancel
+							</button>
+						)}
+					</div>
+				</form>
 			</section>
 			<p className="hint">
 				Invited users set their own passwords through email. Service-role

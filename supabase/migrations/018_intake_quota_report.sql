@@ -233,7 +233,9 @@ grant execute on function public.save_admission_decision(
 
 drop view if exists public.admission_intake_summary;
 
-create or replace view public.admission_intake_summary
+drop view if exists public.admission_intake_summary;
+
+create view public.admission_intake_summary
 with (security_invoker = true)
 as
 select
@@ -284,7 +286,9 @@ group by intake.id, branch.intake;
 
 grant select on public.admission_intake_summary to authenticated;
 
-create or replace view public.admission_quota_transfers
+drop view if exists public.admission_quota_transfers;
+
+create view public.admission_quota_transfers
 with (security_invoker = true)
 as
 select

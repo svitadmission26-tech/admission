@@ -321,23 +321,42 @@ select
     )
   );
 
-insert into
-  storage.buckets (
-    id,
-    name,
-    public,
-    file_size_limit,
-    allowed_mime_types
-  )
-values
-  (
-    'student-documents',
-    'student-documents',
-    false,
-    5242880,
-    array['application/pdf', 'image/jpeg', 'image/png']
-  )
-on conflict (id) do nothing;
+-- The bucket is created with the columns that the storage schema of
+-- this Supabase version has. The file size limit and the mime types are set
+-- when the columns exist, so the migration runs on every version.
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'storage'
+      and table_name = 'buckets'
+      and column_name = 'public'
+  ) then
+    insert into
+      storage.buckets (
+        id,
+        name,
+        public,
+        file_size_limit,
+        allowed_mime_types
+      )
+    values
+      (
+        'student-documents',
+        'student-documents',
+        false,
+        5242880,
+        array['application/pdf', 'image/jpeg', 'image/png']
+      )
+    on conflict (id) do nothing;
+  else
+    insert into storage.buckets (id, name)
+    values ('student-documents', 'student-documents')
+    on conflict (id) do nothing;
+  end if;
+end
+$$;
 
 drop policy if exists student_upload on storage.objects;
 

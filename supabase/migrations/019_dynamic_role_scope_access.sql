@@ -1415,12 +1415,11 @@ begin
         raise exception 'Record is outside your assigned college, department, or course scope';
       end if;
     elsif tg_table_name = 'faculty' then
-      if not public.staff_department_scope_allows(old.department) then
+      if not public.staff_department_scope_allows(public.faculty_department_name(old.id)) then
         raise exception 'Record is outside your assigned college, department, or course scope';
       end if;
     elsif tg_table_name = 'faculty_leaves' then
-      select member.department into v_department
-      from public.faculty member where member.id = old.faculty_id;
+      v_department := public.faculty_department_name(old.faculty_id);
       if not public.staff_department_scope_allows(v_department) then
         raise exception 'Record is outside your assigned college, department, or course scope';
       end if;
@@ -1442,10 +1441,9 @@ begin
   if tg_table_name in ('students', 'subjects', 'timetable_slots') then
     v_course := new.course;
   elsif tg_table_name = 'faculty' then
-    v_department := new.department;
+    v_department := public.faculty_department_name(new.id);
   elsif tg_table_name = 'faculty_leaves' then
-    select member.department into v_department
-    from public.faculty member where member.id = new.faculty_id;
+    v_department := public.faculty_department_name(new.faculty_id);
   elsif tg_table_name = 'lecture_proxies' then
     select slot.course into v_course
     from public.timetable_slots slot where slot.id = new.slot_id;
@@ -1491,24 +1489,65 @@ drop trigger if exists lecture_attendance_scope_guard on public.lecture_attendan
 create trigger lecture_attendance_scope_guard before insert or update on public.lecture_attendance
 for each row execute function public.guard_academic_scope_write();
 
+-- The department of a faculty member. The free text column was
+-- removed by migration 029, so the column that the database has is used.
+create or replace function public.faculty_department_name(p_faculty_id uuid)
+returns text
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_department text;
+begin
+  if p_faculty_id is null then
+    return null;
+  end if;
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'faculty'
+      and column_name = 'department'
+  ) then
+    execute 'select faculty.department from public.faculty faculty where faculty.id = $1'
+      into v_department using p_faculty_id;
+  elsif exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'faculty'
+      and column_name = 'department_id'
+  ) then
+    execute 'select department.name from public.faculty faculty join public.departments department on department.id = faculty.department_id where faculty.id = $1'
+      into v_department using p_faculty_id;
+  end if;
+  return v_department;
+end;
+$$;
+
+revoke all on function public.faculty_department_name(uuid) from public;
+grant execute on function public.faculty_department_name(uuid) to authenticated;
+
 drop policy if exists faculty_academics_read on public.faculty;
 create policy faculty_academics_read on public.faculty
 for select to authenticated
 using (
   (public.has_permission('academics.read')
     or public.has_permission('academics.manage'))
-  and public.staff_department_scope_allows(faculty.department)
+  and public.staff_department_scope_allows(public.faculty_department_name(faculty.id))
 );
 drop policy if exists faculty_academics_manage on public.faculty;
 create policy faculty_academics_manage on public.faculty
 for all to authenticated
 using (
   public.has_permission('academics.manage')
-  and public.staff_department_scope_allows(faculty.department)
+  and public.staff_department_scope_allows(public.faculty_department_name(faculty.id))
 )
 with check (
   public.has_permission('academics.manage')
-  and public.staff_department_scope_allows(faculty.department)
+  and public.staff_department_scope_allows(public.faculty_department_name(faculty.id))
 );
 
 drop policy if exists students_academics_read on public.students;
@@ -1571,7 +1610,7 @@ using (
   and exists (
     select 1 from public.faculty member
     where member.id = faculty_leaves.faculty_id
-      and public.staff_department_scope_allows(member.department)
+      and public.staff_department_scope_allows(public.faculty_department_name(member.id))
   )
 );
 drop policy if exists faculty_leaves_insert on public.faculty_leaves;
@@ -1585,7 +1624,7 @@ with check (
   and exists (
     select 1 from public.faculty member
     where member.id = faculty_leaves.faculty_id
-      and public.staff_department_scope_allows(member.department)
+      and public.staff_department_scope_allows(public.faculty_department_name(member.id))
   )
 );
 drop policy if exists faculty_leaves_manage on public.faculty_leaves;
@@ -1596,7 +1635,7 @@ using (
   and exists (
     select 1 from public.faculty member
     where member.id = faculty_leaves.faculty_id
-      and public.staff_department_scope_allows(member.department)
+      and public.staff_department_scope_allows(public.faculty_department_name(member.id))
   )
 )
 with check (
@@ -1604,7 +1643,7 @@ with check (
   and exists (
     select 1 from public.faculty member
     where member.id = faculty_leaves.faculty_id
-      and public.staff_department_scope_allows(member.department)
+      and public.staff_department_scope_allows(public.faculty_department_name(member.id))
   )
 );
 

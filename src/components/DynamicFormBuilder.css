@@ -111,7 +111,8 @@
 	font-size: 11px;
 }
 .dfb-type-badge,
-.dfb-status-badge {
+.dfb-status-badge,
+.dfb-draft-badge {
 	display: inline-block;
 	margin: 2px 6px 2px 0;
 	padding: 4px 7px;
@@ -129,6 +130,56 @@
 .dfb-status-badge.disabled {
 	background: #f1c40f;
 	color: #231c00;
+}
+.dfb-draft-badge.draft {
+	background: #e2e8f0;
+	color: #334155;
+}
+.dfb-draft-badge.published {
+	background: #166b3d;
+	color: #fff;
+}
+/* Notice that explains why a published form cannot be changed */
+.dfb-notice {
+	margin: 14px 0;
+	padding: 14px 16px;
+	border: 1px solid #f0d9ae;
+	border-radius: 10px;
+	background: #fff6e5;
+	color: #6b4a0c;
+	font-size: 13px;
+	line-height: 1.6;
+}
+.dfb-notice strong {
+	display: block;
+	font-size: 14px;
+}
+.dfb-notice p {
+	margin: 6px 0 12px;
+	color: #7a5712;
+}
+.dfb-notice button {
+	padding: 8px 14px;
+	border: 0;
+	border-radius: 6px;
+	cursor: pointer;
+	font-weight: 700;
+}
+.dfb-notice-readonly {
+	border-color: #bcd4ef;
+	background: #eef5ff;
+	color: #1e3a63;
+}
+.dfb-notice-readonly p {
+	color: #2c5282;
+}
+.dfb-notice-published {
+	border-color: #b7e0c6;
+	background: #effaf3;
+	color: #14532d;
+}
+.dfb-notice-published p {
+	color: #166b3d;
 }
 .dfb-row-actions {
 	white-space: nowrap;
@@ -211,6 +262,41 @@
 	width: auto;
 	margin: 0;
 }
+/* The admission types that the form allows */
+.dfb-admission-types {
+	margin: 12px 0;
+}
+.dfb-field-label {
+	display: block;
+	margin-bottom: 6px;
+	font-size: 12px;
+	font-weight: 600;
+}
+.dfb-admission-type-options {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 22px;
+	padding: 10px 12px;
+	border: 1px solid #d6e1ee;
+	border-radius: 8px;
+	background: #fbfdff;
+}
+.dfb-admission-type-options .dfb-check {
+	margin: 0;
+	font-size: 13px;
+	font-weight: 500;
+}
+.dfb-admission-type-options input[type='checkbox'] {
+	width: 16px;
+	height: 16px;
+	margin: 0;
+}
+.dfb-admission-types small {
+	display: block;
+	margin-top: 6px;
+	color: #74849b;
+	font-size: 11px;
+}
 .dfb-schema {
 	display: grid;
 	grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.5fr);
@@ -283,6 +369,34 @@
 	display: block;
 	margin-top: 4px;
 	color: #74849b;
+}
+/* The Sr. No. of a field inside the section that is open */
+.dfb-sr-no {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	border: 1px solid #9dc2f2;
+	border-radius: 50%;
+	background: #eef5ff;
+	color: #1d4ed8;
+	font-size: 12px;
+	font-weight: 700;
+	line-height: 1;
+}
+.dfb-sr-hint {
+	display: block;
+	margin-top: 3px;
+	color: #74849b;
+	font-size: 11px;
+	font-weight: 400;
+}
+.dfb-sr-move-input {
+	width: 46px;
+	min-width: 46px;
+	text-align: center;
 }
 .dfb-empty {
 	padding: 18px 8px;
@@ -404,6 +518,75 @@
 .dfb-field-actions {
 	display: flex;
 	gap: 6px;
+}
+/* Multi select panel that adds several fields in one step */
+.dfb-bulk-modal {
+	width: min(680px, 100%);
+}
+.dfb-bulk-hint {
+	margin: 10px 0 0;
+	color: #74849b;
+	font-size: 12px;
+	line-height: 1.6;
+}
+.dfb-bulk-tabs {
+	display: flex;
+	gap: 8px;
+	margin: 14px 0 0;
+}
+.dfb-bulk-tabs button {
+	border: 1px solid #d6e1ee;
+	background: #fff;
+	border-radius: 7px 7px 0 0;
+	padding: 8px 14px;
+	font-weight: 600;
+	color: #55657c;
+}
+.dfb-bulk-tabs button.active {
+	background: #eef5ff;
+	border-color: #9dc2f2;
+	color: #1d4ed8;
+}
+.dfb-bulk-toolbar {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+.dfb-bulk-toolbar button {
+	padding: 4px 10px;
+	font-size: 12px;
+}
+.dfb-bulk-list {
+	display: grid;
+	gap: 8px;
+	max-height: 320px;
+	overflow: auto;
+	padding: 4px 2px;
+}
+.dfb-bulk-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 8px 10px;
+	border: 1px solid #e6ebf2;
+	border-radius: 7px;
+	background: #fbfdff;
+}
+.dfb-bulk-row .dfb-check {
+	margin: 0;
+	font-size: 13px;
+	font-weight: 600;
+}
+.dfb-bulk-row input:not([type='checkbox']) {
+	width: min(240px, 45%);
+	margin-top: 0;
+	padding: 6px 8px;
+	font-size: 12px;
+}
+.dfb-bulk-row small {
+	margin: 0;
+	text-align: right;
 }
 .dfb-check,
 .dfb-radio-options label {

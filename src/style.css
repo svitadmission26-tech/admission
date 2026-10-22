@@ -343,6 +343,16 @@ th {
 	background: #e8f8ed;
 	color: #166b3d;
 }
+.warning {
+	padding: 12px 15px;
+	border-radius: 8px;
+	margin: 10px 0;
+	background: #fff6e5;
+	color: #8a5a12;
+	border: 1px solid #f0d9ae;
+	font-size: 12px;
+	line-height: 1.55;
+}
 .error button,
 .success button {
 	float: right;
@@ -392,6 +402,32 @@ th {
 	font-size: 22px;
 	line-height: 2;
 }
+.auth-photo-stage {
+	padding: 12px;
+	display: grid;
+	gap: 10px;
+}
+.auth-photo {
+	width: 100%;
+	height: 260px;
+	object-fit: cover;
+	border-radius: 10px;
+}
+.auth-photo-dots {
+	display: flex;
+	gap: 8px;
+	justify-content: center;
+}
+.auth-photo-dots button {
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+	border: 1px solid #ffffff66;
+	background: #ffffff33;
+	color: #fff;
+	cursor: pointer;
+	font-weight: 700;
+}
 .authcard {
 	margin: auto;
 	width: min(380px, 85%);
@@ -409,6 +445,86 @@ th {
 .authcard .link {
 	border: 0;
 	color: #1460bb;
+}
+/* Dynamic login page */
+.auth-logo {
+	display: block;
+	max-width: 190px;
+	max-height: 90px;
+	margin-bottom: 22px;
+	border-radius: 12px;
+	background: #ffffff1f;
+	padding: 8px;
+	object-fit: contain;
+}
+.authcard select {
+	padding: 11px 12px;
+	border: 1px solid #d7e2ee;
+	border-radius: 8px;
+	background: #fff;
+	font-size: 14px;
+	color: #15253d;
+}
+.authcard select:focus-visible {
+	outline: 2px solid #4b8bd0;
+	outline-offset: 1px;
+}
+.auth-hint {
+	margin: -8px 0 0 !important;
+	font-size: 12px;
+	color: #6b7c91 !important;
+}
+.auth-password {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.auth-password input {
+	flex: 1;
+	min-width: 0;
+}
+.auth-password button {
+	flex: 0 0 auto;
+	padding: 9px 12px;
+	border: 1px solid #d7e2ee;
+	border-radius: 8px;
+	background: #f5f8fc;
+	color: #35587f;
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+}
+.auth-password button:hover {
+	background: #e9f1fa;
+}
+.auth-inline {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+.authcard .auth-inline label,
+.authcard .auth-checkbox {
+	flex-direction: row;
+	align-items: center;
+	gap: 8px;
+	text-transform: none;
+	font-size: 13px;
+	font-weight: 500;
+	color: #35587f;
+}
+.authcard .auth-checkbox input {
+	width: 16px;
+	height: 16px;
+	margin: 0;
+}
+.authcard .auth-inline .link {
+	font-size: 13px;
+	font-weight: 600;
+	padding: 0;
+	background: none;
+	cursor: pointer;
 }
 .setup {
 	margin: 15vh auto;

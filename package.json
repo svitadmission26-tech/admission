@@ -7,7 +7,18 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
-    "server": "node server/index.js"
+    "server": "node server/index.js",
+    "local-stack": "bash scripts/local-stack.sh up",
+    "local-stack:down": "bash scripts/local-stack.sh down",
+    "test:login-modules": "node e2e/login_modules.fallback.test.mjs",
+    "test:login-modules:e2e": "node e2e/login_modules.e2e.mjs",
+    "test:erp-modules:e2e": "node e2e/erp_modules.e2e.mjs",
+    "test:form-fields": "node e2e/form_fields.test.mjs",
+    "test:admission-types": "node e2e/admission_types.test.mjs",
+    "test:branch-field:e2e": "node e2e/branch_field.e2e.mjs",
+    "test:erp-registry:e2e": "node e2e/erp_registry.test.mjs",
+    "test:erp-excel": "node e2e/erp_excel.test.mjs",
+    "test:migrations": "node e2e/migrations.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.3",

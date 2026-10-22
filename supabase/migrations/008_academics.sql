@@ -819,7 +819,9 @@ grant execute on function public.submit_lecture_attendance(uuid, date, jsonb) to
 -- ---------------------------------------------------------------------------
 -- Reporting view
 -- ---------------------------------------------------------------------------
-create or replace view public.lecture_attendance_report
+drop view if exists public.lecture_attendance_report;
+
+create view public.lecture_attendance_report
 with (security_invoker = true)
 as
 select

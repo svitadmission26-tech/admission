@@ -402,7 +402,9 @@ grant execute on function public.save_admission_decision(
   uuid, text, text, text, text, text, text, text, text, text, text, uuid
 ) to authenticated;
 
-create or replace view public.admission_intake_summary
+drop view if exists public.admission_intake_summary;
+
+create view public.admission_intake_summary
 with (security_invoker = true)
 as
 select
