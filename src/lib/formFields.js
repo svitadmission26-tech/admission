@@ -1,6 +1,34 @@
 // Helpers for the admission form builder. The functions are pure so that the
 // field list behaviour can be tested without a browser.
 
+// The field types that an inquiry form can use. Kept here so that the builder
+// and the tests agree on the supported types.
+export const fieldTypes = [
+	'text',
+	'email',
+	'number',
+	'date',
+	'tel',
+	'url',
+	'textarea',
+	'select',
+	'checkbox',
+	'radio',
+	'college',
+	'course',
+	'branch',
+	'department',
+	'faculty',
+	'timing',
+	'gender',
+	'source',
+	'qualification',
+	'consent',
+];
+export const inquiryFieldTypes = fieldTypes;
+export const dynamicFieldTypes = fieldTypes;
+export const INQUIRY_FIELD_TYPES = fieldTypes;
+
 // The database key of a field, built from its label.
 export const makeFieldKey = (label) =>
 	String(label ?? '')
@@ -96,3 +124,55 @@ export const branchOptionsForField = (field, branches = []) =>
 			branch.active !== false &&
 			(!field?.options?.length || field.options.includes(branch.id)),
 	);
+
+// The colleges that a college field offers. An empty option list means that
+// every active college is offered.
+export const collegeOptionsForField = (field, colleges = []) =>
+	(colleges ?? []).filter(
+		(college) =>
+			college.active !== false &&
+			(!field?.options?.length || field.options.includes(college.id)),
+	);
+
+export const collegeOptions = collegeOptionsForField;
+export const collegesForField = collegeOptionsForField;
+
+// Build the timing slot labels that a timing field offers from the college
+// timing rows. A row without opening/closing hours is skipped and duplicate
+// slots are removed.
+export const timingSlotsFromCollegeTimings = (timings = []) => {
+	const fmt = (value) => {
+		const text = String(value ?? '');
+		const hour = Number(text.slice(0, 2));
+		const minute = text.slice(3, 5);
+		if (Number.isNaN(hour)) return text;
+		const ampm = hour >= 12 ? 'PM' : 'AM';
+		const display = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+		return `${display}:${minute} ${ampm}`;
+	};
+	return [
+		...new Set(
+			(timings ?? [])
+				.map((timing) => {
+					if (!timing?.opens_at || !timing?.closes_at) return null;
+					if (timing.active === false) return null;
+					return `${fmt(timing.opens_at)} - ${fmt(timing.closes_at)}`;
+				})
+				.filter(Boolean),
+		),
+	];
+};
+
+// The timing options that a timing field offers. An empty option list means
+// that every slot derived from the college timings is offered.
+export const timingOptionsForField = (field, timings = []) => {
+	const slots = timingSlotsFromCollegeTimings(timings);
+	const allowed = field?.options?.length ? field.options : slots;
+	return slots.filter((slot) => allowed.includes(slot));
+};
+
+// Aliases kept for compatibility with callers that use the college timing
+// wording from the admin screen.
+export const collegeTimingSlots = timingSlotsFromCollegeTimings;
+export const collegeTimingOptions = timingOptionsForField;
+export const timingSlotsForField = timingOptionsForField;

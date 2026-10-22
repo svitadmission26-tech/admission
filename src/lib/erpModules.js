@@ -3333,6 +3333,7 @@ export const erpModules = [
 					number('period_minutes', 'Period minutes'),
 					text('break_start', 'Break start', { type: 'time' }),
 					text('break_end', 'Break end', { type: 'time' }),
+					text('breaks', 'Breaks (JSON)', { type: 'json' }),
 					flag('is_working_day', 'Working day'),
 					flag('active', 'Active'),
 				],

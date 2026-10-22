@@ -167,6 +167,7 @@ export function PublicInquiry() {
 	const [inquiryForms, setInquiryForms] = useState([]);
 	const [selectedForm, setSelectedForm] = useState(null);
 	const [timingOptions, setTimingOptions] = useState([]);
+	const [collegeTimings, setCollegeTimings] = useState([]);
 	const [facultyFilter, setFacultyFilter] = useState({ collegeId: '', department: '' });
 	const [loading, setLoading] = useState(true);
 
@@ -206,22 +207,7 @@ export function PublicInquiry() {
 				if (timingsRes.error) console.error('College timings:', timingsRes.error);
 				else {
 					const timings = timingsRes.data ?? [];
-					const slots = [...new Set(
-						timings
-							.map((t) => {
-								if (!t.opens_at || !t.closes_at) return null;
-								const fmt = (d) => {
-									const h = Number(d.toString().slice(0, 2));
-									const m = d.toString().slice(3, 5);
-									const ampm = h >= 12 ? 'PM' : 'AM';
-									const display = h > 12 ? h - 12 : h === 0 ? 12 : h;
-									return `${display}:${m} ${ampm}`;
-								};
-								return `${fmt(t.opens_at)} - ${fmt(t.closes_at)}`;
-							})
-							.filter(Boolean),
-					)];
-					setTimingOptions(slots);
+					setCollegeTimings(timings);
 				}
 			} catch (err) {
 				console.error('Failed to load catalog:', err);
@@ -299,10 +285,28 @@ export function PublicInquiry() {
 	}, [form.college_id, form.course_interest]);
 
 	useEffect(() => {
-		if (form.college_id && selectedCollegeTiming.length > 0) {
-			setTimingOptions([]);
-		}
-	}, [form.college_id]);
+		const relevant = form.college_id
+			? collegeTimings.filter((timing) => timing.college_id === form.college_id)
+			: collegeTimings;
+		const slots = [...new Set(
+			relevant
+				.map((timing) => {
+					if (!timing.opens_at || !timing.closes_at) return null;
+					const fmt = (value) => {
+						const text = String(value);
+						const hour = Number(text.slice(0, 2));
+						const minute = text.slice(3, 5);
+						if (Number.isNaN(hour)) return text;
+						const ampm = hour >= 12 ? 'PM' : 'AM';
+						const display = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+						return `${display}:${minute} ${ampm}`;
+					};
+					return `${fmt(timing.opens_at)} - ${fmt(timing.closes_at)}`;
+				})
+				.filter(Boolean),
+		)];
+		setTimingOptions(slots);
+	}, [form.college_id, collegeTimings]);
 
 	async function submit(event) {
 		event.preventDefault();

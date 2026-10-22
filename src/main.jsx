@@ -729,34 +729,70 @@ function AdmissionField({
 		);
 	if (field.type === 'table') {
 		const rowCount = Number(field.rows) > 0 ? Number(field.rows) : 5;
+		const makeRow = () => ({
+			subject_code: '',
+			subject_name: '',
+			theory_enabled: true,
+			practical_enabled: true,
+			theory_max: '',
+			theory_marks: '',
+			practical_max: '',
+			practical_marks: '',
+			total_max: '',
+			total_marks: '',
+			grade: '',
+		});
 		const rows = Array.isArray(value) && value.length
-			? value
-			: Array.from({ length: rowCount }, () => ({
-					subject: '',
-					max_marks: '',
-					marks: '',
-				}));
+			? value.map((row) => ({ ...makeRow(), ...row }))
+			: Array.from({ length: rowCount }, makeRow);
+		const recompute = (row) => {
+			const theoryMax = row.theory_enabled ? Number(row.theory_max || 0) : 0;
+			const theoryMarks = row.theory_enabled ? Number(row.theory_marks || 0) : 0;
+			const practicalMax = row.practical_enabled ? Number(row.practical_max || 0) : 0;
+			const practicalMarks = row.practical_enabled ? Number(row.practical_marks || 0) : 0;
+			return {
+				...row,
+				total_max: String(theoryMax + practicalMax),
+				total_marks: String(theoryMarks + practicalMarks),
+			};
+		};
 		const updateCell = (index, key, nextValue) => {
-			const nextRows = rows.map((row, i) =>
-				i === index ? { ...row, [key]: nextValue } : row,
-			);
+			const nextRows = rows.map((row, i) => {
+				if (i !== index) return row;
+				const updated = { ...row, [key]: nextValue };
+				// toggles may change availability; recompute totals.
+				if (key === 'theory_enabled' || key === 'practical_enabled') {
+					if (key === 'theory_enabled' && !nextValue) {
+						updated.theory_max = '';
+						updated.theory_marks = '';
+					}
+					if (key === 'practical_enabled' && !nextValue) {
+						updated.practical_max = '';
+						updated.practical_marks = '';
+					}
+				}
+				return recompute(updated);
+			});
 			onChange(nextRows);
 		};
-		const addRow = () =>
-			onChange([
-				...rows,
-				{ subject: '', max_marks: '', marks: '' },
-			]);
-		const removeRow = (index) =>
-			onChange(rows.filter((_, i) => i !== index));
+		const addRow = () => onChange([...rows.map(recompute), makeRow()]);
+		const removeRow = (index) => onChange(rows.filter((_, i) => i !== index).map(recompute));
 		return (
 			<div className="admission-table-field">
 				<table>
 					<thead>
 						<tr>
-							<th>Subject</th>
-							<th>Max marks</th>
-							<th>Marks obtained</th>
+							<th>Subject code</th>
+							<th>Subject name</th>
+							<th>Theory max</th>
+							<th>Theory marks</th>
+							<th>Practical max</th>
+							<th>Practical marks</th>
+							<th>Total max</th>
+							<th>Total marks</th>
+							<th>Grade / Result</th>
+							<th>Theory</th>
+							<th>Practical</th>
 							<th></th>
 						</tr>
 					</thead>
@@ -764,39 +800,40 @@ function AdmissionField({
 						{rows.map((row, index) => (
 							<tr key={index}>
 								<td>
-									<input
-										type="text"
-										value={row.subject ?? ''}
-										onChange={(event) =>
-											updateCell(index, 'subject', event.target.value)
-										}
-									/>
+									<input type="text" value={row.subject_code ?? ''} onChange={(e) => updateCell(index, 'subject_code', e.target.value)} />
 								</td>
 								<td>
-									<input
-										type="number"
-										value={row.max_marks ?? ''}
-										onChange={(event) =>
-											updateCell(index, 'max_marks', event.target.value)
-										}
-									/>
+									<input type="text" value={row.subject_name ?? ''} onChange={(e) => updateCell(index, 'subject_name', e.target.value)} />
 								</td>
 								<td>
-									<input
-										type="number"
-										value={row.marks ?? ''}
-										onChange={(event) =>
-											updateCell(index, 'marks', event.target.value)
-										}
-									/>
+									<input type="number" disabled={!row.theory_enabled} value={row.theory_max ?? ''} onChange={(e) => updateCell(index, 'theory_max', e.target.value)} />
 								</td>
 								<td>
-									<button
-										type="button"
-										onClick={() => removeRow(index)}
-									>
-										×
-									</button>
+									<input type="number" disabled={!row.theory_enabled} value={row.theory_marks ?? ''} onChange={(e) => updateCell(index, 'theory_marks', e.target.value)} />
+								</td>
+								<td>
+									<input type="number" disabled={!row.practical_enabled} value={row.practical_max ?? ''} onChange={(e) => updateCell(index, 'practical_max', e.target.value)} />
+								</td>
+								<td>
+									<input type="number" disabled={!row.practical_enabled} value={row.practical_marks ?? ''} onChange={(e) => updateCell(index, 'practical_marks', e.target.value)} />
+								</td>
+								<td>
+									<input type="number" readOnly value={row.total_max ?? ''} />
+								</td>
+								<td>
+									<input type="number" readOnly value={row.total_marks ?? ''} />
+								</td>
+								<td>
+									<input type="text" value={row.grade ?? ''} onChange={(e) => updateCell(index, 'grade', e.target.value)} />
+								</td>
+								<td>
+									<input type="checkbox" checked={Boolean(row.theory_enabled)} onChange={(e) => updateCell(index, 'theory_enabled', e.target.checked)} />
+								</td>
+								<td>
+									<input type="checkbox" checked={Boolean(row.practical_enabled)} onChange={(e) => updateCell(index, 'practical_enabled', e.target.checked)} />
+								</td>
+								<td>
+									<button type="button" onClick={() => removeRow(index)}>×</button>
 								</td>
 							</tr>
 						))}
@@ -2212,9 +2249,17 @@ function App() {
 				field.key,
 				field.type === 'table'
 					? Array.from({ length: Number(field.rows) > 0 ? Number(field.rows) : 5 }, () => ({
-							subject: '',
-							max_marks: '',
-							marks: '',
+							subject_code: '',
+							subject_name: '',
+							theory_enabled: true,
+							practical_enabled: true,
+							theory_max: '',
+							theory_marks: '',
+							practical_max: '',
+							practical_marks: '',
+							total_max: '',
+							total_marks: '',
+							grade: '',
 						}))
 					: field.defaultValue ?? (field.type === 'checkbox' ? false : ''),
 			]),

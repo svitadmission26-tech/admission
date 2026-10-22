@@ -221,11 +221,18 @@ export default function TimetableDashboard({ onNavigate, canManage }) {
 								<div style={{ fontSize: '0.85rem', color: '#475569' }}>
 									⏱️ Period: {t.period_minutes} minutes
 								</div>
-								{t.break_start && (
-									<div style={{ fontSize: '0.85rem', color: '#0284c7' }}>
-										☕ Break: {t.break_start} – {t.break_end}
-									</div>
-								)}
+								{(() => {
+									const breaks = Array.isArray(t.breaks) && t.breaks.length
+										? t.breaks
+										: t.break_start
+											? [{ start: t.break_start, end: t.break_end }]
+											: [];
+									return breaks.map((b, index) => (
+										<div key={index} style={{ fontSize: '0.85rem', color: '#0284c7' }}>
+											☕ Break {breaks.length > 1 ? index + 1 : ''}: {b.start} – {b.end}
+										</div>
+									));
+								})()}
 								<div style={{ fontSize: '0.8rem', color: t.active ? '#16a34a' : '#dc2626', marginTop: 4 }}>
 									{t.active ? '● Working' : '○ Holiday/Off'}
 								</div>

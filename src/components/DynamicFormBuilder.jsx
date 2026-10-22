@@ -235,6 +235,12 @@ function PreviewField({ field, branches = [] }) {
 				))}
 			</div>
 		);
+	if (field.type === 'table')
+		return (
+			<div className="dfb-table-preview">
+				Marks table ({Number(field.rows) > 0 ? Number(field.rows) : 5} rows)
+			</div>
+		);
 	return <input {...common} type={field.type} />;
 }
 

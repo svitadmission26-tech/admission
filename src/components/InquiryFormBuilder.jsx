@@ -29,7 +29,51 @@ const slugify = (value) =>
 		.replace(/[^a-z0-9]+/g, '-')
 		.replace(/^-|-$/g, '');
 
-const fieldTypes = ['text', 'email', 'number', 'date', 'textarea', 'select', 'checkbox'];
+export const fieldTypes = [
+	'text',
+	'email',
+	'number',
+	'date',
+	'tel',
+	'url',
+	'textarea',
+	'select',
+	'checkbox',
+	'radio',
+	'college',
+	'course',
+	'branch',
+	'department',
+	'faculty',
+	'timing',
+	'gender',
+	'source',
+	'qualification',
+	'consent',
+];
+
+export const fieldTypeLabels = {
+	text: 'Text',
+	email: 'Email',
+	number: 'Number',
+	date: 'Date',
+	tel: 'Phone',
+	url: 'URL',
+	textarea: 'Textarea',
+	select: 'Select',
+	checkbox: 'Checkbox',
+	radio: 'Radio',
+	college: 'College Selection',
+	course: 'Course Selection',
+	branch: 'Branch Selection',
+	department: 'Department Selection',
+	faculty: 'Faculty / Branch Selection',
+	timing: 'College Timing (Hours)',
+	gender: 'Gender',
+	source: 'Source',
+	qualification: 'Qualification',
+	consent: 'Consent',
+};
 
 export default function InquiryFormBuilder() {
 	const [forms, setForms] = useState([]);
@@ -206,7 +250,7 @@ export default function InquiryFormBuilder() {
 			key: fieldDraft.key.trim(),
 			label: fieldDraft.label.trim(),
 			options:
-				fieldDraft.type === 'select'
+				fieldDraft.type === 'select' || fieldDraft.type === 'radio'
 					? (fieldDraft.options || []).map((option) => option.trim()).filter(Boolean)
 					: [],
 		};
@@ -222,8 +266,11 @@ export default function InquiryFormBuilder() {
 			setMessage(`The field key "${field.key}" is already in use.`);
 			return;
 		}
-		if (field.type === 'select' && !field.options.length) {
-			setMessage('Add at least one option for a select field.');
+		if (
+			(field.type === 'select' || field.type === 'radio') &&
+			!field.options.length
+		) {
+			setMessage('Add at least one option for a select/radio field.');
 			return;
 		}
 		setFields((current) =>
@@ -467,13 +514,13 @@ export default function InquiryFormBuilder() {
 						<div className="inquiry-field-modal-grid">
 							<label>Field Label<input value={fieldDraft.label} onChange={(event) => updateDraft('label', event.target.value)} required /></label>
 							<label>Field Key<input value={fieldDraft.key} onChange={(event) => updateDraft('key', event.target.value)} placeholder="first_name" required /></label>
-							<label>Field Type<select value={fieldDraft.type} onChange={(event) => updateDraft('type', event.target.value)}>{fieldTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+							<label>Field Type<select value={fieldDraft.type} onChange={(event) => updateDraft('type', event.target.value)}>{fieldTypes.map((type) => <option key={type} value={type}>{fieldTypeLabels[type] || type}</option>)}</select></label>
 							<label>Section<select value={fieldDraft.sectionId} onChange={(event) => updateDraft('sectionId', event.target.value)}>{sections.map((section) => <option key={section.id} value={section.id}>{section.title}</option>)}</select></label>
 							<label>Column Width<select value={fieldDraft.width} onChange={(event) => updateDraft('width', event.target.value)}><option value="full">Full Width</option><option value="half">Half Width</option><option value="third">One Third</option></select></label>
 							<label>Default Value<input value={fieldDraft.defaultValue ?? ''} onChange={(event) => updateDraft('defaultValue', event.target.value)} /></label>
 						</div>
 						<label className="inquiry-field-checkbox"><input type="checkbox" checked={fieldDraft.required} onChange={(event) => updateDraft('required', event.target.checked)} />Required</label>
-						{fieldDraft.type === 'select' && (
+						{(fieldDraft.type === 'select' || fieldDraft.type === 'radio') && (
 							<label>Options (one per line)<textarea rows={3} value={(fieldDraft.options || []).join('\n')} onChange={(event) => updateDraft('options', event.target.value.split('\n'))} /></label>
 						)}
 						<div className="inquiry-field-options">
@@ -507,7 +554,7 @@ export default function InquiryFormBuilder() {
 								{fields.filter((field) => field.sectionId === section.id).map((field) => (
 									<label className={`width-${field.width || 'full'}`} key={field.key}>
 										{field.label}{field.required && ' *'}
-										{field.type === 'textarea' ? <textarea rows={2} placeholder={field.placeholder} /> : field.type === 'select' ? <select defaultValue=""><option value="">Select…</option>{field.options?.map((option) => <option key={option}>{option}</option>)}</select> : field.type === 'checkbox' ? <input type="checkbox" /> : <input type={['text', 'email', 'number', 'date'].includes(field.type) ? field.type : 'text'} placeholder={field.placeholder} />}
+										{field.type === 'textarea' ? <textarea rows={2} placeholder={field.placeholder} /> : ['select', 'college', 'course', 'branch', 'department', 'faculty', 'timing', 'gender', 'source', 'qualification', 'radio'].includes(field.type) ? <select defaultValue=""><option value="">Select…</option>{(field.type === 'timing' ? ['9:00 AM - 10:00 AM', '10:00 AM - 11:00 AM'] : field.options || []).map((option) => <option key={option}>{option}</option>)}</select> : field.type === 'checkbox' ? <input type="checkbox" /> : field.type === 'consent' ? <input type="checkbox" /> : <input type={['text', 'email', 'number', 'date', 'tel', 'url'].includes(field.type) ? field.type : 'text'} placeholder={field.placeholder} />}
 									</label>
 								))}
 							</div>
