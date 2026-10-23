@@ -3418,6 +3418,61 @@ export const erpModules = [
 			},
 		],
 	},
+
+	// ------------------------------------------------------------------
+	// 26. New Student Admission Management
+	// ------------------------------------------------------------------
+	{
+		id: 'new_student_admission',
+		number: 26,
+		title: 'New Student Admission Management',
+		icon: '🎓',
+		portal: 'new_student_admission',
+		entryPage: 'New Student Admission Dashboard',
+		description:
+			'Manage new student admissions: enrolment, course/branch allotment, admission number and status',
+		primary: 'new_student_admissions',
+		tables: [
+			{
+				key: 'new_student_admissions',
+				title: 'New Student Admissions',
+				table: 'new_student_admissions',
+				description: 'Enrolled new students and their admission details.',
+				fields: [
+					text('admission_number', 'Admission number', { required: true, unique: true }),
+					text('student_name', 'Student name', { required: true }),
+					text('email', 'Email', { type: 'email' }),
+					text('phone', 'Phone', { type: 'phone' }),
+					reference('course_id', 'Course', 'courses', ['name', 'code'], 'course'),
+					reference('branch_id', 'Branch', 'branches', ['name', 'code'], 'branch'),
+					reference('academic_year_id', 'Academic year', 'academic_years', ['name'], 'academic_year'),
+					select('admission_type', 'Admission type', [
+						'Regular',
+						'Provisional',
+						'Direct Second Year',
+						'MQ/NRI',
+					]),
+					date('admission_date', 'Admission date'),
+					select('status', 'Status', [
+						'Draft',
+						'Submitted',
+						'Verified',
+						'Approved',
+						'Cancelled',
+					]),
+					text('remarks', 'Remarks', { type: 'textarea' }),
+				],
+				searchFields: ['admission_number', 'student_name', 'email', 'phone'],
+				filters: [
+					{ key: 'status', label: 'Status' },
+					{ key: 'admission_type', label: 'Admission type' },
+				],
+				kpis: [{ key: 'total', label: 'New admissions', count: true }],
+				excel: { import: true, template: true },
+				pdf: { title: 'New student admissions' },
+			},
+		],
+	},
 ];
 
 export const erpModuleById = Object.fromEntries(

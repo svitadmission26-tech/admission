@@ -1,0 +1,14 @@
+// Import Bootstrap SCSS
+@import 'bootstrap/scss/bootstrap';
+// Import Bootstrap Icons
+@import 'bootstrap-icons/font/bootstrap-icons.css';
+
+// Base styles for full-height layout
+html, body {
+    margin: 0;
+    padding: 0;
+}
+
+#svelte {
+    /* height: 100%; */
+}

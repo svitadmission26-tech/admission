@@ -1,0 +1,177 @@
+<div style="font-family: Arial, sans-serif; width: 100%; max-width: 800px; margin: 0 auto; padding: 20px; box-sizing: border-box;">
+    <!-- Header Section -->
+    <table style="width: 100%; border: 1px solid black; border-collapse: collapse; margin-bottom: 20px;">
+        <tr>
+            <td style="width: 15%; text-align: center; border-right: 1px solid black; padding: 10px;">
+                <img src="{{college.logo_url}}" alt="Logo" style="max-height: 80px; max-width: 80px;" />
+            </td>
+            <td style="width: 85%; text-align: center; padding: 10px;">
+                <h2 style="margin: 0; font-size: 20px;">{{college.name}}</h2>
+                <h4 style="margin: 5px 0; font-weight: normal;">Managed By: {{college.trust_name}}</h4>
+                <h3 style="margin: 5px 0;">MQ/NRI/NRI Sponsored Application Form ({{application.academic_year}})</h3>
+            </td>
+        </tr>
+    </table>
+
+    <div style="text-align: right; font-weight: bold; margin-bottom: 5px;">Applied For: {{application.form_type}}</div>
+
+    <!-- Metadata Strip -->
+    <table style="width: 100%; border: 1px solid black; border-collapse: collapse; margin-bottom: 20px;">
+        <tr>
+            <td style="border: 1px solid black; padding: 5px;">ACPC Number:</td>
+            <td style="border: 1px solid black; padding: 5px; text-align: center;">{{application.form_data.acpc_number}}</td>
+            <td style="border: 1px solid black; padding: 5px;">ACPC Merit Number:</td>
+            <td style="border: 1px solid black; padding: 5px; text-align: center;">{{application.form_data.acpc_merit_number}}</td>
+            <td style="border: 1px solid black; padding: 5px;">Entrance Exam Number:</td>
+            <td style="border: 1px solid black; padding: 5px; text-align: center;">{{application.form_data.entrance_exam_number}}</td>
+        </tr>
+        <tr>
+            <td colspan="2" style="border: 1px solid black; padding: 5px;">Student ABC Id:</td>
+            <td colspan="2" style="border: 1px solid black; padding: 5px; text-align: center;">{{student.abc_id}}</td>
+            <td style="border: 1px solid black; padding: 5px;">UDISE Number:</td>
+            <td style="border: 1px solid black; padding: 5px; text-align: center;">{{student.udise_number}}</td>
+        </tr>
+    </table>
+
+    <!-- Personal Details Section -->
+    <div style="background-color: #d9e2f3; border: 1px solid black; text-align: center; font-weight: bold; padding: 5px; font-size: 18px; margin-bottom: -1px;">PERSONAL DETAILS</div>
+    <table style="width: 100%; border: 1px solid black; border-collapse: collapse; margin-bottom: 20px;">
+        <tr>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold; width: 25%;">Name</td>
+            <td colspan="3" style="border: 1px solid black; padding: 8px;">{{student.full_name}}</td>
+        </tr>
+        <tr>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold;">Name As Per AadharCard</td>
+            <td colspan="3" style="border: 1px solid black; padding: 8px;">{{student.aadhar_name}}</td>
+        </tr>
+        <tr>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold;">Current Address</td>
+            <td colspan="3" style="border: 1px solid black; padding: 8px;">{{student.address_line_1}}, {{student.district}}</td>
+        </tr>
+        <tr>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold; width: 25%;">State</td>
+            <td style="border: 1px solid black; padding: 8px; width: 25%;">{{student.state}}</td>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold; width: 25%;">Country</td>
+            <td style="border: 1px solid black; padding: 8px; width: 25%;">{{student.country}}</td>
+        </tr>
+        <tr>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold;">City</td>
+            <td style="border: 1px solid black; padding: 8px;">{{student.city}}</td>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold;">Pincode</td>
+            <td style="border: 1px solid black; padding: 8px;">{{student.pincode}}</td>
+        </tr>
+        <tr>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold;">Contact</td>
+            <td colspan="3" style="border: 1px solid black; padding: 8px;">{{student.phone}}</td>
+        </tr>
+        <tr>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold;">Email</td>
+            <td colspan="3" style="border: 1px solid black; padding: 8px;">{{student.email}}</td>
+        </tr>
+        <tr>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold;">Birth Date</td>
+            <td style="border: 1px solid black; padding: 8px;">{{student.dob}}</td>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold;">Gender</td>
+            <td style="border: 1px solid black; padding: 8px;">{{student.gender}}</td>
+        </tr>
+    </table>
+
+    <!-- Academic Details Section -->
+    <div style="background-color: #d9e2f3; border: 1px solid black; text-align: center; font-weight: bold; padding: 5px; font-size: 18px; margin-bottom: -1px;">ACADEMIC DETAILS</div>
+    <table style="width: 100%; border: 1px solid black; border-collapse: collapse; margin-bottom: 20px;">
+        <tr>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold; width: 30%;">Exam Board</td>
+            <td style="border: 1px solid black; padding: 8px;">{{application.form_data.board}}</td>
+        </tr>
+        <tr>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold;">Last School Name</td>
+            <td style="border: 1px solid black; padding: 8px;">{{application.form_data.school_name}}</td>
+        </tr>
+        <tr>
+            <td style="border: 1px solid black; padding: 8px; font-weight: bold;">Last School City</td>
+            <td style="border: 1px solid black; padding: 8px;">{{application.form_data.school_city}}</td>
+        </tr>
+    </table>
+
+    <!-- Extended Board Exam Results Section -->
+    <div style="background-color: #d9e2f3; border: 1px solid black; text-align: center; font-weight: bold; padding: 5px; font-size: 18px; margin-bottom: -1px;">BOARD EXAM RESULT</div>
+    <table style="width: 100%; border: 1px solid black; border-collapse: collapse; margin-bottom: 20px;">
+        <thead>
+            <tr>
+                <th style="border: 1px solid black; padding: 8px; background-color: #f2f2f2;">Subject</th>
+                <th style="border: 1px solid black; padding: 8px; background-color: #f2f2f2;">Theory (Obtained)</th>
+                <th style="border: 1px solid black; padding: 8px; background-color: #f2f2f2;">Theory (Out of)</th>
+                <th style="border: 1px solid black; padding: 8px; background-color: #f2f2f2;">Practical (Obtained)</th>
+                <th style="border: 1px solid black; padding: 8px; background-color: #f2f2f2;">Practical (Out of)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">Physics</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.physics.theory_obtained}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.physics.theory_max}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.physics.practical_obtained}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.physics.practical_max}}</td>
+            </tr>
+            <tr>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">Mathematics</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.math.theory_obtained}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.math.theory_max}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.math.practical_obtained}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.math.practical_max}}</td>
+            </tr>
+            <tr>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">Chemistry</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.chemistry.theory_obtained}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.chemistry.theory_max}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.chemistry.practical_obtained}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.chemistry.practical_max}}</td>
+            </tr>
+            <tr>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">English</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.english.theory_obtained}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.english.theory_max}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.english.practical_obtained}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.english.practical_max}}</td>
+            </tr>
+            <tr>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">Computer</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.computer.theory_obtained}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.computer.theory_max}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.computer.practical_obtained}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">{{marks.computer.practical_max}}</td>
+            </tr>
+            <tr>
+                <td style="border: 1px solid black; padding: 8px; text-align: center; font-weight: bold;">Total</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center; font-weight: bold;">{{marks.total.theory_obtained}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center; font-weight: bold;">{{marks.total.theory_max}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center; font-weight: bold;">{{marks.total.practical_obtained}}</td>
+                <td style="border: 1px solid black; padding: 8px; text-align: center; font-weight: bold;">{{marks.total.practical_max}}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- Entrance Exam Results Section -->
+    <div style="background-color: #d9e2f3; border: 1px solid black; text-align: center; font-weight: bold; padding: 5px; font-size: 18px; margin-bottom: -1px;">ENTRANCE EXAM RESULT</div>
+    <table style="width: 100%; border: 1px solid black; border-collapse: collapse; margin-bottom: 30px;">
+        <thead>
+            <tr>
+                <th style="border: 1px solid black; padding: 8px; background-color: #f2f2f2; width: 50%;">Subject</th>
+                <th style="border: 1px solid black; padding: 8px; background-color: #f2f2f2; width: 50%;">GUJCET</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td style="border: 1px solid black; padding: 8px; text-align: center;">Physics</td><td style="border: 1px solid black; padding: 8px; text-align: center;">{{entrance_marks.physics.obtained}}</td></tr>
+            <tr><td style="border: 1px solid black; padding: 8px; text-align: center;">Chemistry</td><td style="border: 1px solid black; padding: 8px; text-align: center;">{{entrance_marks.chemistry.obtained}}</td></tr>
+            <tr><td style="border: 1px solid black; padding: 8px; text-align: center;">Mathematics</td><td style="border: 1px solid black; padding: 8px; text-align: center;">{{entrance_marks.math.obtained}}</td></tr>
+            <tr><td style="border: 1px solid black; padding: 8px; text-align: center; font-weight: bold;">Total</td><td style="border: 1px solid black; padding: 8px; text-align: center; font-weight: bold;">{{entrance_marks.total.obtained}}</td></tr>
+        </tbody>
+    </table>
+
+    <!-- Footer / Declaration -->
+    <p style="margin-bottom: 50px;">I hereby declare that the details furnished above are true and correct to the best of my knowledge and belief.</p>
+    
+    <div style="text-align: right;">
+        <span style="border-top: 1px solid black; padding-top: 5px; padding-left: 20px; padding-right: 20px;">Signature</span>
+    </div>
+</div>
