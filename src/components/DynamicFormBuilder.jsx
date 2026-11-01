@@ -284,6 +284,8 @@ export default function DynamicFormBuilder({ canManage = true }) {
 	const [newSectionTitle, setNewSectionTitle] = useState('');
 	const [fields, setFields] = useState([]);
 	const [branches, setBranches] = useState([]);
+	const [examMasters, setExamMasters] = useState([]);
+	const [examTabs, setExamTabs] = useState([]);
 	const [bulkDraft, setBulkDraft] = useState(null);
 	const [preview, setPreview] = useState(false);
 	const [message, setMessage] = useState('');
@@ -305,6 +307,7 @@ export default function DynamicFormBuilder({ canManage = true }) {
 				formTypesResult,
 				profileFieldsResult,
 				branchesResult,
+				examMastersResult,
 			] = await Promise.all([
 				supabase
 					.from('admission_forms')
@@ -316,6 +319,7 @@ export default function DynamicFormBuilder({ canManage = true }) {
 				supabase.from('form_types').select('id,name').eq('active', true).order('name'),
 				supabase.from('student_profile_fields').select('id,label,key,input_type,required,default_value,force_uppercase,text_case,options').order('display_order'),
 				supabase.from('branches').select('id,name,course_id,college_id,active').order('name'),
+				supabase.from('exam_masters').select('id,code,name,active').eq('active', true).order('name'),
 			]);
 			// The forms are the important part of the screen. A failing lookup
 			// of a reference list must never empty the list, so the lookups
@@ -332,6 +336,7 @@ export default function DynamicFormBuilder({ canManage = true }) {
 				[formTypesResult, setFormTypes],
 				[profileFieldsResult, setProfileFields],
 				[branchesResult, setBranches],
+				[examMastersResult, setExamMasters],
 			];
 			const failed = lookups.filter(([result]) => result.error);
 			for (const [result, apply] of lookups) {
@@ -488,6 +493,7 @@ export default function DynamicFormBuilder({ canManage = true }) {
 		setSections(defaultSections());
 		setActiveSectionId('general');
 		setFields([]);
+		setExamTabs([]);
 		setFieldDraft(null);
 		setEditingFieldIndex(null);
 		setSectionDraft(null);
@@ -535,6 +541,7 @@ export default function DynamicFormBuilder({ canManage = true }) {
 					}))
 				: [],
 		);
+		setExamTabs(Array.isArray(form.exam_tabs) ? form.exam_tabs : []);
 		setFieldDraft(null);
 		setEditingFieldIndex(null);
 		setFieldDraftMoveTo('');
@@ -908,6 +915,7 @@ export default function DynamicFormBuilder({ canManage = true }) {
 				allowed_admission_types: admissionTypes.length ? admissionTypes : ['Regular'],
 				form_layout: formLayout,
 				form_sections: sections,
+				exam_tabs: examTabs,
 				fields: fields.map((field) => ({
 					...field,
 					options: ['select', 'radio', 'branch'].includes(field.type)
@@ -1390,6 +1398,32 @@ export default function DynamicFormBuilder({ canManage = true }) {
 						<small>
 							The student picks one of the allowed types on the admission form. When no
 							type is ticked, only Regular admission is allowed.
+						</small>
+					</div>
+					<div className="dfb-admission-types">
+						<span className="dfb-field-label">Examination Tabs</span>
+						<div className="dfb-admission-type-options">
+							{examMasters.map((exam) => (
+								<label className="dfb-check" key={exam.id}>
+									<input
+										type="checkbox"
+										disabled={locked}
+										checked={examTabs.includes(exam.code)}
+										onChange={(event) =>
+											setExamTabs((current) =>
+												event.target.checked
+													? [...current, exam.code]
+													: current.filter((item) => item !== exam.code),
+											)
+										}
+									/>
+									{exam.name}
+								</label>
+							))}
+						</div>
+						<small>
+							Enable or disable examination tabs for this admission form. Results are stored
+							independently and are not combined automatically.
 						</small>
 					</div>
 					{preview ? (

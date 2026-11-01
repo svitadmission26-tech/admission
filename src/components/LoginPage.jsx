@@ -358,8 +358,29 @@ export default function LoginPage({
 					<h2>Welcome back</h2>
 					<p>Sign in to continue to your workspace.</p>
 					{warning && <div className="warning">{warning}</div>}
+					<div className="portal-choice-grid" role="group" aria-label="Portal choices">
+						{[
+							{ id: 'admin', moduleId: 'admin', label: 'Admin Portal', icon: '🛠️', description: 'Full ERP management, subject to configured permissions.' },
+							{ id: 'chairman', moduleId: 'chairman', label: 'Chairman Portal', icon: '👔', description: 'Executive dashboard, intake, admissions, fees and reports.' },
+							{ id: 'faculty', moduleId: 'faculty', label: 'Faculty Portal', icon: '🧑‍🏫', description: 'Timetable, inquiry assignment, leave, proxy, attendance and documents.' },
+							{ id: 'student', moduleId: 'student', label: 'Student Portal', icon: '🎓', description: 'Personal application, admission status, fees, receipts, documents, notices and ID card.' },
+						].map((portal) => (
+							<button
+								key={portal.id}
+								type="button"
+								className={`portal-choice-card${
+									selectedModuleId === portal.moduleId ? ' selected' : ''
+								}`}
+								onClick={() => onSelectModule?.(portal.moduleId)}
+							>
+								<span className="portal-choice-icon">{portal.icon}</span>
+								<strong>{portal.label}</strong>
+								<small>{portal.description}</small>
+							</button>
+						))}
+					</div>
 					<label>
-						Select Login Module
+						Login Module
 						<select
 							required
 							value={selectedModuleId}

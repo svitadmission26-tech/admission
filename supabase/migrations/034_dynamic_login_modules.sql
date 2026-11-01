@@ -330,7 +330,8 @@ values
   ('admission_staff', 'Admission Staff', 'Inquiries, final admissions and application review', '🗂️', 'admissions', 'Inquiries', 5, true, array['authority', 'data_entry', 'admission_staff']),
   ('accountant', 'Accountant', 'Fee structures, fee assignments and payments', '💰', 'admissions', 'Payments', 6, true, array['fees_collection', 'accountant']),
   ('library_staff', 'Library Staff', 'Faculty records, subjects and library desk', '📚', 'college_info', 'Faculty', 7, true, array['library_staff']),
-  ('examination_cell', 'Examination Cell', 'Applications, merit entries and result reports', '🧮', 'admissions', 'Reports', 8, true, array['examination_cell'])
+  ('examination_cell', 'Examination Cell', 'Applications, merit entries and result reports', '🧮', 'admissions', 'Reports', 8, true, array['examination_cell']),
+  ('chairman', 'Chairman', 'Executive dashboard, intake, admissions, fees and reports', '👔', 'admissions', 'Chairman Dashboard', 9, true, array['chairman'])
 on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------

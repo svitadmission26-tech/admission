@@ -95,6 +95,17 @@ export const defaultLoginModules = [
 		enabled: true,
 		allowed_roles: ['examination_cell'],
 	},
+	{
+		id: 'chairman',
+		name: 'Chairman',
+		description: 'Executive dashboard, intake, admissions, fees and reports',
+		icon: '\u{1F454}',
+		portal_id: 'admissions',
+		entry_page: 'Chairman Dashboard',
+		display_order: 9,
+		enabled: true,
+		allowed_roles: ['chairman'],
+	},
 ];
 
 // PostgREST and Postgres report a missing table or function with these codes.

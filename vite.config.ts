@@ -7,10 +7,15 @@ export default defineConfig({
 		allowedHosts: true,
 		proxy: {
 			'/supabase': {
-				target: 'http://127.0.0.1:8010',
+				target: 'http://127.0.0.1:8000',
 				changeOrigin: true,
 				ws: true,
 				rewrite: (path) => path.replace(/^\/supabase/, ''),
+			},
+			'/api': {
+				target: 'http://127.0.0.1:3001',
+				changeOrigin: true,
+				ws: true,
 			},
 		},
 	},

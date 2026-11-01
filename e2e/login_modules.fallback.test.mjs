@@ -30,8 +30,8 @@ const seededIds = [...seedBlock.matchAll(/\('([a-z_]+)',\s*'/g)].map(
 );
 
 check(
-	'the catalogue holds the eight default modules',
-	defaultLoginModules.length === 8,
+	'the catalogue holds the nine default modules',
+	defaultLoginModules.length === 9,
 	String(defaultLoginModules.length),
 );
 check(
@@ -68,7 +68,7 @@ check(
 	),
 );
 check(
-	'the display order is 1 to 8',
+	'the display order is 1 to 9',
 	defaultLoginModules.every((item, index) => item.display_order === index + 1),
 );
 

@@ -1,4 +1,4 @@
--- 047_new_student_admissions.sql
+-- Migration 047: new student admissions module.
 -- New Student Admission Management module.
 
 create table if not exists public.new_student_admissions (

@@ -276,6 +276,14 @@ check(
 	`${new Set(helperBlocks.values()).size} different copies`,
 );
 
+check(
+	'051_phase7_marks_report_access: guards the permission helper it calls',
+	/to_regprocedure\('public\.has_permission\(text\)'\) is null/i.test(
+		contents.get('051_phase7_marks_report_access.sql') ?? '',
+	),
+	'the policy can crash when the permission helper is missing',
+);
+
 // ---------------------------------------------------------------------------
 // The shared masters
 //

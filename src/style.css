@@ -918,3 +918,55 @@ th {
 		grid-column: 1;
 	}
 }
+
+/* Four portal login choices */
+.portal-choice-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+	margin: 6px 0 14px;
+}
+.portal-choice-card {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 6px;
+	padding: 14px;
+	border: 1px solid #d7e2ee;
+	border-radius: 12px;
+	background: #f8fbff;
+	color: #15253d;
+	cursor: pointer;
+	text-align: left;
+	transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.portal-choice-card:hover {
+	border-color: #2274c9;
+	background: #eef5fd;
+}
+.portal-choice-card.selected {
+	border-color: #2274c9;
+	background: #e7f1fc;
+	box-shadow: 0 0 0 2px #2274c933;
+}
+.portal-choice-card strong {
+	font-size: 14px;
+	font-weight: 700;
+	text-transform: none;
+}
+.portal-choice-card small {
+	font-size: 12px;
+	color: #6b7c91;
+	text-transform: none;
+	font-weight: 400;
+	line-height: 1.4;
+}
+.portal-choice-icon {
+	font-size: 22px;
+	line-height: 1;
+}
+@media (max-width: 480px) {
+	.portal-choice-grid {
+		grid-template-columns: 1fr;
+	}
+}

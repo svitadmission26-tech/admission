@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API = import.meta.env.VITE_API_URL?.trim() || '';
 export default function AdmissionChatbot() {
 	const college = import.meta.env.VITE_PUBLIC_COLLEGE_ID;
 	const [open, setOpen] = useState(false);

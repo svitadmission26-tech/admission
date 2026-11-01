@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
+    "start": "node server/index.js",
     "preview": "vite preview",
     "server": "node server/index.js",
     "local-stack": "bash scripts/local-stack.sh up",

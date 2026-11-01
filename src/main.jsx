@@ -59,6 +59,8 @@ const InquiryFormBuilder = React.lazy(
 );
 const CollegeTiming = React.lazy(() => import('./components/CollegeTiming'));
 const IntakeReport = React.lazy(() => import('./components/IntakeReport'));
+const StudentMarksReport = React.lazy(() => import('./components/StudentMarksReport'));
+const ChairmanDashboard = React.lazy(() => import('./components/ChairmanDashboard'));
 const TimetableModule = React.lazy(() =>
 	import('./components/Academics').then((module) => ({
 		default: module.TimetableModule,
@@ -153,6 +155,10 @@ const superAdminModules = [
 			'Courses',
 			'Branches',
 			'Academic Calendar',
+			'Academic Years',
+			'Holiday Calendar',
+			'Departments',
+			'College Timing',
 			'Designation',
 			'Faculty',
 		],
@@ -259,6 +265,12 @@ function inquiryValueForField(field, inquiry) {
 	return value;
 }
 const meta = {
+	'Exam Masters': ['exam_masters', ['code', 'name', 'description', 'active']],
+	'Board Masters': ['board_masters', ['name', 'active']],
+	'Subject Masters': ['subject_masters', ['code', 'name', 'active']],
+	'Board Subjects': ['board_subjects', ['board_id', 'subject_id', 'theory_max', 'practical_max', 'has_practical', 'display_order', 'active']],
+	'Course Exam Applicability': ['course_exam_applicability', ['course_id', 'exam_id', 'enabled', 'display_order']],
+	'Merit Calculation Settings': ['merit_calculation_settings', ['course_id', 'mode', 'formula', 'active']],
 	Universities: ['universities', ['name', 'logo_url', 'active']],
 	Colleges: [
 		'colleges',
@@ -305,6 +317,14 @@ const meta = {
 	'Academic Calendar': [
 		'academic_years',
 		['name', 'starts_on', 'ends_on', 'active'],
+	],
+	'Holiday Calendar': [
+		'college_holidays',
+		['college_id', 'title', 'holiday_date', 'description', 'is_recurring', 'active'],
+	],
+	'Departments': [
+		'departments',
+		['name', 'code', 'active'],
 	],
 	'Form Types': ['form_types', ['name', 'code', 'description', 'flags', 'active']],
 	'Student Profile Schema': [
@@ -386,8 +406,11 @@ const meta = {
 		'fee_structures',
 		[
 			'title',
+			'fee_category',
 			'course_id',
+			'branch_id',
 			'academic_year',
+			'admission_type',
 			'form_type_id',
 			'fee_scheme_id',
 			'amount_paise',
@@ -469,6 +492,9 @@ const referenceTables = {
 	form_type_id: 'form_types',
 	fee_scheme_id: 'fee_schemes',
 	branch_id: 'branches',
+	board_id: 'board_masters',
+	exam_id: 'exam_masters',
+	subject_id: 'subject_masters',
 };
 // Columns that keep a label instead of a UUID. The choices are read from a
 // reference table, but the record stores the text value.
@@ -485,6 +511,18 @@ const referenceSelectColumns = {
 // record instead of the column.
 const fieldHeadings = {
 	college_id: 'College',
+	board_id: 'Board',
+	exam_id: 'Exam',
+	subject_id: 'Subject',
+	theory_max: 'Theory Max',
+	practical_max: 'Practical Max',
+	has_practical: 'Has Practical',
+	display_order: 'Display Order',
+	mode: 'Mode',
+	fee_category: 'Fee Category',
+	admission_type: 'Admission Type',
+	is_recurring: 'Recurring',
+	holiday_date: 'Holiday Date',
 	course_id: 'Course',
 	branch_id: 'Branch',
 	department_id: 'Department',
@@ -1248,12 +1286,30 @@ function App() {
 						setLoginModuleWarning(
 							'The login modules are not installed in this database yet, so the built-in list is shown. Apply migration 034_dynamic_login_modules.sql in Supabase to manage the modules and to validate them on the server.',
 						);
-						return;
+					} else {
+						// Any other error (network, CORS, RLS, …) still keeps the
+						// login page usable with the built-in catalogue.
+						setLoginModules(defaultLoginModules);
+						setLoginModuleWarning(
+							`The login modules could not be read from the database, so the built-in list is shown. ${error.message}`.trim(),
+						);
 					}
-					E(`Could not load the login modules: ${error.message}`);
 					return;
 				}
-				setLoginModules(data ?? []);
+				// If the database is reachable but has no enabled modules yet,
+				// fall back so the login page is never empty.
+				if (!data || data.length === 0) {
+					setLoginModules(defaultLoginModules);
+					setLoginModuleWarning('');
+					return;
+				}
+				setLoginModules(
+					data.map((item) => ({
+						...item,
+						enabled: true,
+						allowed_roles: item.allowed_roles ?? [],
+					})),
+				);
 				setLoginModuleWarning('');
 			})
 			.catch((error) => {
@@ -2209,9 +2265,11 @@ function App() {
 			}
 			answers.branch_id = branchId;
 		}
-		const { error } = await supabase
+		const { data: insertedApplication, error } = await supabase
 			.from('applications')
-			.insert({ student_id: session.user.id, form_id: published.id, answers });
+			.insert({ student_id: session.user.id, form_id: published.id, answers })
+			.select('id')
+			.single();
 		if (error) {
 			let message = error.message;
 			if (uploadedPaths.length) {
@@ -2224,8 +2282,64 @@ function App() {
 			E(message);
 			return;
 		}
+		if (insertedApplication?.id && Array.isArray(boardMarks) && boardMarks.length && selectedBoardId) {
+			const exam = (await supabase.from('exam_masters').select('id').eq('code', 'board').maybeSingle()).data;
+			const rows = boardMarks.map((row) => ({
+				application_id: insertedApplication.id,
+				exam_id: exam?.id ?? null,
+				board_id: selectedBoardId,
+				subject_id: row.subject_id,
+				subject_name: row.subject_name,
+				theory_max: row.theory_max,
+				theory_obtained: row.theory_obtained,
+				practical_max: row.has_practical ? row.practical_max : 0,
+				practical_obtained: row.has_practical ? row.practical_obtained : 0,
+				percentage:
+					(Number(row.theory_max || 0) + (row.has_practical ? Number(row.practical_max || 0) : 0)) > 0
+						? ((Number(row.theory_obtained || 0) + (row.has_practical ? Number(row.practical_obtained || 0) : 0)) /
+								(Number(row.theory_max || 0) + (row.has_practical ? Number(row.practical_max || 0) : 0))) *
+							  100
+						: 0,
+			}));
+			const { error: marksError } = await supabase.from('student_exam_marks').insert(rows);
+			if (marksError) E(marksError.message);
+		}
+		const resultRows = [];
+		if (Array.isArray(published?.exam_tabs) && published.exam_tabs.includes('nata')) {
+			const examId = examMasterIds.nata ?? null;
+			for (const [fieldKey, fieldValue] of Object.entries(nataResult)) {
+				if (String(fieldValue ?? '').trim()) resultRows.push({ application_id: insertedApplication.id, exam_id: examId, field_key: fieldKey, field_value: String(fieldValue) });
+			}
+			if (nataDocPath) resultRows.push({ application_id: insertedApplication.id, exam_id: examId, field_key: 'result_document', document_url: nataDocPath });
+		}
+		if (Array.isArray(published?.exam_tabs) && published.exam_tabs.includes('gujcet')) {
+			const examId = examMasterIds.gujcet ?? null;
+			for (const [fieldKey, fieldValue] of Object.entries(gujcetResult)) {
+				if (String(fieldValue ?? '').trim()) resultRows.push({ application_id: insertedApplication.id, exam_id: examId, field_key: fieldKey, field_value: String(fieldValue) });
+			}
+			if (gujcetDocPath) resultRows.push({ application_id: insertedApplication.id, exam_id: examId, field_key: 'result_document', document_url: gujcetDocPath });
+		}
+		if (Array.isArray(published?.exam_tabs) && published.exam_tabs.includes('neet')) {
+			const examId = examMasterIds.neet ?? null;
+			for (const [fieldKey, fieldValue] of Object.entries(neetResult)) {
+				if (String(fieldValue ?? '').trim()) resultRows.push({ application_id: insertedApplication.id, exam_id: examId, field_key: fieldKey, field_value: String(fieldValue) });
+			}
+			if (neetDocPath) resultRows.push({ application_id: insertedApplication.id, exam_id: examId, field_key: 'result_document', document_url: neetDocPath });
+		}
+		if (resultRows.length) {
+			const { error: resultError } = await supabase.from('student_exam_results').insert(resultRows);
+			if (resultError) E(resultError.message);
+		}
 		N('Application submitted');
 		setApplicationValues({});
+		setSelectedBoardId('');
+		setBoardMarks([]);
+		setNataResult({ exam_year: '', roll_number: '', obtained_score: '', max_score: '', rank: '' });
+		setNataDocPath('');
+		setGujcetResult({ exam_year: '', seat_number: '', subject_marks: '', total_score: '', percentile: '' });
+		setGujcetDocPath('');
+		setNeetResult({ exam_year: '', roll_number: '', obtained_marks: '', max_marks: '', percentile: '', rank: '' });
+		setNeetDocPath('');
 		formElement.reset();
 		await refresh();
 	}
@@ -2238,6 +2352,17 @@ function App() {
 		else refresh();
 	}
 	const [published, B] = useState(null);
+	const [boardMasters, setBoardMasters] = useState([]);
+	const [boardSubjects, setBoardSubjects] = useState([]);
+	const [selectedBoardId, setSelectedBoardId] = useState('');
+	const [boardMarks, setBoardMarks] = useState([]);
+	const [examMasterIds, setExamMasterIds] = useState({});
+	const [nataResult, setNataResult] = useState({ exam_year: '', roll_number: '', obtained_score: '', max_score: '', rank: '' });
+	const [nataDocPath, setNataDocPath] = useState('');
+	const [gujcetResult, setGujcetResult] = useState({ exam_year: '', seat_number: '', subject_marks: '', total_score: '', percentile: '' });
+	const [gujcetDocPath, setGujcetDocPath] = useState('');
+	const [neetResult, setNeetResult] = useState({ exam_year: '', roll_number: '', obtained_marks: '', max_marks: '', percentile: '', rank: '' });
+	const [neetDocPath, setNeetDocPath] = useState('');
 	const [publishedForms, setPublishedForms] = useState([]);
 	const [formTypeNames, setFormTypeNames] = useState({});
 	const [applicationValues, setApplicationValues] = useState({});
@@ -2320,10 +2445,72 @@ function App() {
 			cancelled = true;
 		};
 	}, [session, admin]);
+	useEffect(() => {
+		let cancelled = false;
+		supabase
+			.from('board_masters')
+			.select('id,name')
+			.eq('active', true)
+			.order('name')
+			.then(({ data, error }) => {
+				if (cancelled || error) return;
+				setBoardMasters(data ?? []);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+	useEffect(() => {
+		let cancelled = false;
+		supabase
+			.from('exam_masters')
+			.select('id,code')
+			.then(({ data, error }) => {
+				if (cancelled || error) return;
+				setExamMasterIds(Object.fromEntries((data ?? []).map((row) => [row.code, row.id])));
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 	// A new form starts with its own default answers.
 	useEffect(() => {
 		setApplicationValues(defaultApplicationValues(published));
+		setSelectedBoardId('');
+		setBoardMarks([]);
 	}, [published?.id]);
+	useEffect(() => {
+		let cancelled = false;
+		if (!selectedBoardId) {
+			setBoardSubjects([]);
+			setBoardMarks([]);
+			return;
+		}
+		supabase
+			.from('board_subjects')
+			.select('id,subject_id,theory_max,practical_max,has_practical,display_order,subject_masters(name)')
+			.eq('board_id', selectedBoardId)
+			.eq('active', true)
+			.order('display_order')
+			.then(({ data, error }) => {
+				if (cancelled || error) return;
+				const rows = (data ?? []).map((row) => ({
+					id: row.id,
+					subject_id: row.subject_id,
+					subject_name: row.subject_masters?.name || 'Subject',
+					theory_max: Number(row.theory_max || 0),
+					practical_max: Number(row.practical_max || 0),
+					has_practical: Boolean(row.has_practical),
+					theory_obtained: 0,
+					practical_obtained: 0,
+				}));
+				setBoardSubjects(rows);
+				setBoardMarks(rows);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [selectedBoardId]);
 	useEffect(() => {
 		let cancelled = false;
 		async function prefillFromInquiry() {
@@ -3070,6 +3257,14 @@ function App() {
 					<Suspense fallback={<section className="panel">Loading student management...</section>}>
 						<StudentManagement canManage={canManageAcademics} onNavigate={Q} />
 					</Suspense>
+				) : page === 'Chairman Dashboard' ? (
+					<Suspense fallback={<section className="panel">Loading chairman dashboard...</section>}>
+						<ChairmanDashboard />
+					</Suspense>
+				) : page === 'Student Marks Report' ? (
+					<Suspense fallback={<section className="panel">Loading marks report...</section>}>
+						<StudentMarksReport />
+					</Suspense>
 				) : page === 'College Timing' && canReadAcademics ? (
 					<Suspense fallback={<section className="panel">Loading college timings...</section>}><CollegeTiming canManage={canManageAcademics} /></Suspense>
 				) : page === 'Timetable Management' && canReadAcademics ? (
@@ -3300,7 +3495,126 @@ function App() {
 												</div>
 											</section>
 										))}
-									<button className="primary">Submit Application</button>
+									{Array.isArray(published?.exam_tabs) && published.exam_tabs.includes('board') && (
+									<section className="admission-form-section section-card">
+										<h4>Board Exam</h4>
+										<label className="admission-field">
+											<span>Board *</span>
+											<select value={selectedBoardId} onChange={(event) => setSelectedBoardId(event.target.value)}>
+												<option value="">Select board</option>
+												{boardMasters.map((board) => (
+													<option key={board.id} value={board.id}>{board.name}</option>
+												))}
+											</select>
+										</label>
+										{boardMarks.length > 0 && (
+											<div className="tablewrap">
+												<table>
+													<thead>
+														<tr>
+															<th>Subject</th>
+															<th>Theory Max</th>
+															<th>Theory Obtained</th>
+															<th>Practical Max</th>
+															<th>Practical Obtained</th>
+															<th>Total</th>
+															<th>Percentage</th>
+														</tr>
+													</thead>
+													<tbody>
+														{boardMarks.map((row, index) => {
+															const total = Number(row.theory_obtained || 0) + Number(row.practical_obtained || 0);
+															const maxTotal = Number(row.theory_max || 0) + (row.has_practical ? Number(row.practical_max || 0) : 0);
+															const percentage = maxTotal > 0 ? (total / maxTotal) * 100 : 0;
+															return (
+																<tr key={row.id || index}>
+																	<td>{row.subject_name}</td>
+																	<td>{row.theory_max}</td>
+																	<td>
+																		<input type="number" min="0" max={row.theory_max} value={row.theory_obtained} onChange={(event) => {
+																			const value = Math.min(Number(event.target.value || 0), Number(row.theory_max || 0));
+																			setBoardMarks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, theory_obtained: value } : item));
+																		}} />
+																	</td>
+																	<td>{row.has_practical ? row.practical_max : '—'}</td>
+																	<td>
+																		{row.has_practical ? (
+																			<input type="number" min="0" max={row.practical_max} value={row.practical_obtained} onChange={(event) => {
+																				const value = Math.min(Number(event.target.value || 0), Number(row.practical_max || 0));
+																				setBoardMarks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, practical_obtained: value } : item));
+																			}} />
+																		) : '—'}
+																	</td>
+																	<td>{total}</td>
+																	<td>{percentage.toFixed(2)}%</td>
+																</tr>
+															);
+														})}
+													</tbody>
+												</table>
+											</div>
+										)}
+									</section>
+								)}
+								{Array.isArray(published?.exam_tabs) && published.exam_tabs.includes('nata') && (
+									<section className="admission-form-section section-card">
+										<h4>NATA Exam</h4>
+										<label className="admission-field"><span>Exam Year</span><input type="number" value={nataResult.exam_year} onChange={(e) => setNataResult((c) => ({ ...c, exam_year: e.target.value }))} /></label>
+										<label className="admission-field"><span>Roll Number</span><input type="text" value={nataResult.roll_number} onChange={(e) => setNataResult((c) => ({ ...c, roll_number: e.target.value }))} /></label>
+										<label className="admission-field"><span>Obtained Score</span><input type="number" value={nataResult.obtained_score} onChange={(e) => setNataResult((c) => ({ ...c, obtained_score: e.target.value }))} /></label>
+										<label className="admission-field"><span>Maximum Score</span><input type="number" value={nataResult.max_score} onChange={(e) => setNataResult((c) => ({ ...c, max_score: e.target.value }))} /></label>
+										<label className="admission-field"><span>Rank/Result</span><input type="text" value={nataResult.rank} onChange={(e) => setNataResult((c) => ({ ...c, rank: e.target.value }))} /></label>
+										<label className="admission-field"><span>Result Document</span><input type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={(e) => {
+											const file = e.target.files?.[0];
+											if (!file) return;
+											const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+											const path = `${session.user.id}/${crypto.randomUUID()}-${safeName}`;
+											void supabase.storage.from('student-documents').upload(path, file).then(({ error }) => {
+												if (!error) setNataDocPath(path);
+											});
+										}} /></label>
+									</section>
+								)}
+								{Array.isArray(published?.exam_tabs) && published.exam_tabs.includes('gujcet') && (
+									<section className="admission-form-section section-card">
+										<h4>GUJCET Exam</h4>
+										<label className="admission-field"><span>Exam Year</span><input type="number" value={gujcetResult.exam_year} onChange={(e) => setGujcetResult((c) => ({ ...c, exam_year: e.target.value }))} /></label>
+										<label className="admission-field"><span>Seat Number</span><input type="text" value={gujcetResult.seat_number} onChange={(e) => setGujcetResult((c) => ({ ...c, seat_number: e.target.value }))} /></label>
+										<label className="admission-field"><span>Subject-wise Marks</span><textarea value={gujcetResult.subject_marks} onChange={(e) => setGujcetResult((c) => ({ ...c, subject_marks: e.target.value }))} /></label>
+										<label className="admission-field"><span>Total Score</span><input type="number" value={gujcetResult.total_score} onChange={(e) => setGujcetResult((c) => ({ ...c, total_score: e.target.value }))} /></label>
+										<label className="admission-field"><span>Percentile</span><input type="number" value={gujcetResult.percentile} onChange={(e) => setGujcetResult((c) => ({ ...c, percentile: e.target.value }))} /></label>
+										<label className="admission-field"><span>Result Document</span><input type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={(e) => {
+											const file = e.target.files?.[0];
+											if (!file) return;
+											const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+											const path = `${session.user.id}/${crypto.randomUUID()}-${safeName}`;
+											void supabase.storage.from('student-documents').upload(path, file).then(({ error }) => {
+												if (!error) setGujcetDocPath(path);
+											});
+										}} /></label>
+									</section>
+								)}
+								{Array.isArray(published?.exam_tabs) && published.exam_tabs.includes('neet') && (
+									<section className="admission-form-section section-card">
+										<h4>NEET Exam</h4>
+										<label className="admission-field"><span>Exam Year</span><input type="number" value={neetResult.exam_year} onChange={(e) => setNeetResult((c) => ({ ...c, exam_year: e.target.value }))} /></label>
+										<label className="admission-field"><span>Roll Number</span><input type="text" value={neetResult.roll_number} onChange={(e) => setNeetResult((c) => ({ ...c, roll_number: e.target.value }))} /></label>
+										<label className="admission-field"><span>Obtained Marks</span><input type="number" value={neetResult.obtained_marks} onChange={(e) => setNeetResult((c) => ({ ...c, obtained_marks: e.target.value }))} /></label>
+										<label className="admission-field"><span>Maximum Marks</span><input type="number" value={neetResult.max_marks} onChange={(e) => setNeetResult((c) => ({ ...c, max_marks: e.target.value }))} /></label>
+										<label className="admission-field"><span>Percentile</span><input type="number" value={neetResult.percentile} onChange={(e) => setNeetResult((c) => ({ ...c, percentile: e.target.value }))} /></label>
+										<label className="admission-field"><span>Rank</span><input type="text" value={neetResult.rank} onChange={(e) => setNeetResult((c) => ({ ...c, rank: e.target.value }))} /></label>
+										<label className="admission-field"><span>Result Document</span><input type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={(e) => {
+											const file = e.target.files?.[0];
+											if (!file) return;
+											const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+											const path = `${session.user.id}/${crypto.randomUUID()}-${safeName}`;
+											void supabase.storage.from('student-documents').upload(path, file).then(({ error }) => {
+												if (!error) setNeetDocPath(path);
+											});
+										}} /></label>
+									</section>
+								)}
+								<button className="primary">Submit Application</button>
 								</form>
 							) : (
 								<p>
@@ -3865,6 +4179,8 @@ function App() {
 										) : [
 												'active',
 												'published',
+												'has_practical',
+												'enabled',
 												'required',
 												'force_uppercase',
 												'show_college_logo',

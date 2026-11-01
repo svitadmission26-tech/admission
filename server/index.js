@@ -3,10 +3,59 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import http from 'node:http';
+import https from 'node:https';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }));
+app.use(cors({ origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ['http://localhost:5173', 'http://localhost:3001'] }));
+
+// Proxy Supabase requests through the same origin so the browser client keeps
+// working in the single-port deployment (Vite does the same in development).
+const supabaseProxyTarget =
+	process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+if (supabaseProxyTarget) {
+	app.use('/supabase', (req, res) => {
+		let target;
+		try {
+			target = new URL(supabaseProxyTarget);
+		} catch {
+			res.status(500).json({ error: 'Invalid SUPABASE_URL' });
+			return;
+		}
+		const lib = target.protocol === 'https:' ? https : http;
+		const upstreamPath = req.url === '/' ? '/' : req.url;
+		const proxyReq = lib.request(
+			{
+				protocol: target.protocol,
+				hostname: target.hostname,
+				port: target.port,
+				path: `${target.pathname.replace(/\/$/, '')}${upstreamPath}`,
+				method: req.method,
+				headers: { ...req.headers, host: target.host },
+			},
+			(proxyRes) => {
+				res.status(proxyRes.statusCode || 500);
+				for (const [key, value] of Object.entries(proxyRes.headers)) {
+					if (value !== undefined) res.setHeader(key, value);
+				}
+				proxyRes.pipe(res);
+			},
+		);
+		proxyReq.on('error', (error) => {
+			if (!res.headersSent) res.status(502).json({ error: error.message });
+		});
+		req.pipe(proxyReq);
+	});
+}
+
 app.use(express.json({ limit: '100kb' }));
+
+// Serve the built frontend (Vite output) so the whole app runs on a single port.
+const distDir = path.resolve(__dirname, '../dist');
+app.use(express.static(distDir));
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const anonKey = process.env.SUPABASE_ANON_KEY;
@@ -318,6 +367,18 @@ app.patch('/api/admin/users/:id', requireAdmin, async (req, res) => {
 
 if (adminClient) registerAdmissionExtras(app, adminClient, requireAdmin, isUuid);
 
+// Catch-all: serve the SPA for every non-API route so the module screens work.
+app.use((req, res, next) => {
+	if (req.path.startsWith('/api/')) {
+		return res.status(404).json({ error: 'API endpoint not found' });
+	}
+	res.sendFile(path.resolve(distDir, 'index.html'), (error) => {
+		if (error) {
+			res.status(404).json({ error: 'Frontend not built yet. Run "npm run build" before starting the server.' });
+		}
+	});
+});
+
 app.listen(Number(process.env.PORT || 3001), () =>
-	console.log('API listening'),
+	console.log('SVIT ERP running on single port:', `http://localhost:${Number(process.env.PORT || 3001)}`),
 );
