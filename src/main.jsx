@@ -57,6 +57,9 @@ const ReportBuilder = React.lazy(() => import('./components/ReportBuilder'));
 const InquiryFormBuilder = React.lazy(
 	() => import('./components/InquiryFormBuilder'),
 );
+const ChatbotFaqManager = React.lazy(
+	() => import('./components/ChatbotFaqManager'),
+);
 const CollegeTiming = React.lazy(() => import('./components/CollegeTiming'));
 const IntakeReport = React.lazy(() => import('./components/IntakeReport'));
 const StudentMarksReport = React.lazy(() => import('./components/StudentMarksReport'));
@@ -173,6 +176,7 @@ const superAdminModules = [
 			'Final Admissions',
 			'Applications',
 			'Manage Admission Forms',
+			'Chatbot FAQs',
 			'Dynamic Forms',
 			'Fee Assignments',
 			'Payments',
@@ -3138,6 +3142,10 @@ function App() {
 				) : page === 'Inquiry Forms' && admin ? (
 					<Suspense fallback={<section className="panel">Loading inquiry form builder...</section>}>
 						<InquiryFormBuilder />
+					</Suspense>
+				) : page === 'Chatbot FAQs' && admin ? (
+					<Suspense fallback={<section className="panel">Loading chatbot FAQs...</section>}>
+						<ChatbotFaqManager />
 					</Suspense>
 				) : page === 'Inquiries' && canReadInquiries ? (
 					<Suspense fallback={<section className="panel">Loading inquiries...</section>}>
