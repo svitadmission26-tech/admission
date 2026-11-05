@@ -26,10 +26,38 @@
 	font-weight: 800;
 	text-decoration: none;
 }
+.inquiry-mark.has-logo {
+	padding: 6px;
+	overflow: hidden;
+}
+.inquiry-mark img {
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+}
 .inquiry-hero > span {
 	color: #a7d1fa;
 	font-size: 11px;
 	letter-spacing: 3px;
+}
+.inquiry-hero-address {
+	max-width: 420px;
+	margin-top: 15px;
+	color: #dceaff;
+	font-size: 13px;
+	font-style: normal;
+	line-height: 1.7;
+	white-space: pre-line;
+}
+.inquiry-hero-contact {
+	margin-top: 9px;
+	color: #fff;
+	font-size: 14px;
+	font-weight: 700;
+	text-decoration: none;
+}
+.inquiry-hero-contact:hover {
+	text-decoration: underline;
 }
 .inquiry-hero h1 {
 	margin: 20px 0;

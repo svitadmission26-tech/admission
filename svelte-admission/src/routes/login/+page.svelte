@@ -1,47 +1,75 @@
 <script lang="ts"> 
     import { supabase } from '$lib/supabase'; 
-    import { PUBLIC_APP_URL, PUBLIC_SUPABASE_URL } from '$env/static/public';
+    import { PUBLIC_APP_URL } from '$env/static/public';
     import CrystalAnimation from '$lib/components/CrystalAnimation.svelte';
-
-    // DEBUG: Check Supabase Configuration
-    console.log('Login Page Debug:');
-    console.log('Supabase URL:', PUBLIC_SUPABASE_URL);
-    console.log('Supabase Client:', supabase);
 
     let email = '';
     let password = '';
     let errorMessage = '';
+    let successMessage = '';
     let loading = false;
+    let resetLoading = false;
 
-    async function signInWithEmail() {
+    async function signInWithEmail(event: SubmitEvent) {
+        event.preventDefault();
         loading = true;
         errorMessage = '';
-        
-        console.log('Attempting login with:', email);
+        successMessage = '';
 
         try {
             const { data: authData, error } = await supabase.auth.signInWithPassword({
-                email,
+                email: email.trim().toLowerCase(),
                 password
             });
 
             if (error) {
-                console.error('Error signing in:', error);
-                errorMessage = error.message || 'Failed to sign in. Check console for details.';
+                const message = error.message.toLowerCase();
+                if (message.includes('invalid login credentials')) {
+                    errorMessage = 'Email or password is incorrect. Check both, or use “Forgot password?” to reset it.';
+                } else if (message.includes('email not confirmed')) {
+                    errorMessage = 'Please verify your email address before signing in.';
+                } else {
+                    errorMessage = 'Unable to sign in. Please try again or contact your administrator.';
+                }
                 loading = false;
                 return;
             }
-
-            console.log('Login successful:', authData);
 
             if (authData.user) {
                 window.location.href = '/';
             } 
         } catch (err) {
             console.error('Unexpected error during login:', err);
-            errorMessage = 'An unexpected error occurred. Please check your network connection.';
+            errorMessage = 'Unable to sign in. Check your connection and try again.';
         } finally {
             loading = false;
+        }
+    }
+
+    async function sendPasswordReset() {
+        errorMessage = '';
+        successMessage = '';
+        const normalizedEmail = email.trim().toLowerCase();
+        if (!normalizedEmail) {
+            errorMessage = 'Enter your email address first, then request a password reset.';
+            return;
+        }
+
+        resetLoading = true;
+        try {
+            const redirectTo = new URL('/reset-password', window.location.origin).toString();
+            const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, { redirectTo });
+            if (error) {
+                console.error('Password reset request failed:', error.code || error.status || 'unknown error');
+                errorMessage = 'Unable to send a reset link right now. Please try again or contact your administrator.';
+                return;
+            }
+            successMessage = 'If an account exists for this email, a password reset link will be sent.';
+        } catch (err) {
+            console.error('Unexpected error requesting password reset:', err);
+            errorMessage = 'Unable to send a reset link. Check your connection and try again.';
+        } finally {
+            resetLoading = false;
         }
     }
 
@@ -56,8 +84,8 @@
         });
 
         if (error) {
-            console.error('Error signing in with Google:', error.message);
-            alert('Error signing in with Google: ' + error.message);
+            console.error('Google sign-in failed:', error.code || error.status || 'unknown error');
+            errorMessage = 'Unable to sign in with Google. Please try again or use email and password.';
         }
     }
 </script>
@@ -77,20 +105,31 @@
                     {errorMessage}
                 </div>
             {/if}
+            {#if successMessage}
+                <div class="alert alert-success" role="status">
+                    {successMessage}
+                </div>
+            {/if}
 
-            <form on:submit|preventDefault={signInWithEmail}>
+            <form onsubmit={signInWithEmail}>
                 <div class="mb-3">
                     <label for="email" class="form-label text-dark">Email address</label>
-                    <input type="email" class="form-control" id="email" bind:value={email} required placeholder="name@example.com">
+                    <input type="email" class="form-control" id="email" bind:value={email} required autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="name@example.com">
                 </div>
                 <div class="mb-3">
                     <label for="password" class="form-label text-dark">Password</label>
-                    <input type="password" class="form-control" id="password" bind:value={password} required placeholder="********">
+                    <input type="password" class="form-control" id="password" bind:value={password} required autocomplete="current-password" placeholder="********">
                 </div>
                 <button type="submit" class="btn btn-primary w-100 fw-bold" disabled={loading}>
                     {loading ? 'Signing In...' : 'Sign In'}
                 </button>
             </form>
+
+            <div class="text-end mt-2">
+                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" onclick={sendPasswordReset} disabled={resetLoading || loading}>
+                    {resetLoading ? 'Sending reset link...' : 'Forgot password?'}
+                </button>
+            </div>
 
             <div class="mt-3 text-center">
                 <div class="d-flex align-items-center my-3">
@@ -98,7 +137,7 @@
                     <span class="px-2 text-dark small">OR</span>
                     <hr class="flex-grow-1 border-dark">
                 </div>
-                <button type="button" class="btn btn-light border w-100 fw-bold" on:click={signInWithGoogle}>
+                <button type="button" class="btn btn-light border w-100 fw-bold" onclick={signInWithGoogle}>
                     <i class="bi bi-google me-2 text-danger"></i> Sign in with Google
                 </button>
             </div>

@@ -280,6 +280,29 @@ header small {
 .tablewrap {
 	overflow: auto;
 }
+.admission-table-scroll {
+	width: 100%;
+	overflow-x: auto;
+	overscroll-behavior-x: contain;
+}
+.admission-table-field table {
+	width: max-content;
+	min-width: 1200px;
+	table-layout: auto;
+}
+.admission-table-field th,
+.admission-table-field td {
+	max-width: none;
+	white-space: nowrap;
+}
+.admission-table-field td input:not([type='checkbox']) {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 90px;
+}
+.admission-table-field td input[type='checkbox'] {
+	width: auto;
+}
 table {
 	border-collapse: collapse;
 	width: 100%;
@@ -822,6 +845,9 @@ th {
 }
 .admission-field.field-width-quarter {
 	grid-column: span 3;
+}
+.admission-field.field-type-table {
+	grid-column: 1 / -1;
 }
 .admission-section-tabs {
 	display: flex;

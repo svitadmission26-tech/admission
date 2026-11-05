@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react';
 const API = import.meta.env.VITE_API_URL?.trim() || '';
-export default function AdmissionChatbot() {
-	const college = import.meta.env.VITE_PUBLIC_COLLEGE_ID;
+export default function AdmissionChatbot({ collegeId = '' }) {
+	const college = collegeId || import.meta.env.VITE_PUBLIC_COLLEGE_ID || '';
 	const [open, setOpen] = useState(false);
 	const [faqs, setFaqs] = useState([]);
 	const [selected, setSelected] = useState(null);
 	const [error, setError] = useState('');
 
 	useEffect(() => {
+		setError('');
+		setFaqs([]);
+		setSelected(null);
 		if (!open || !college) return;
 		let active = true;
 		fetch(`${API}/api/admission/faqs?college_id=${encodeURIComponent(college)}&language=gu`)

@@ -135,6 +135,7 @@ would otherwise roll the whole migration back.
 | `040_erp_exam_library_hostel.sql` | exams, schedules, seating plans, results, marksheets, grade scales, revaluation, the library catalogue, members, issues, reservations, fines, the hostel rooms, allocations, attendance, maintenance and the ID card templates |
 | `041_erp_support_modules.sql` | communication, inventory and purchase, placement and training, certificates, the website and the helpdesk |
 | `042_erp_security_audit.sql` | the module path on the shared masters with the college / department / course scope, and the audit triggers |
+| `054_dynamic_form_board_subjects.sql` | admin-only subject creation and board mapping from the admission form builder |
 
 ---
 

@@ -75,6 +75,12 @@ supabase/migrations/042_erp_security_audit.sql      # the module path on the sha
 Every migration is idempotent. The whole chain can be applied again on a database that
 already has it: no error, no duplicated table, policy, index or function.
 
+Migration `054_dynamic_form_board_subjects.sql` adds the admin-only
+`admin_add_board_subject()` operation used by the admission form builder. Enable
+the Board Exam tab, then add a subject for an active board with its theory and
+optional practical maximum marks. The subject and its board mapping are saved
+together; the student's Board Exam grid reads these mappings from Board Subjects.
+
 > **If a migration fails with**
 > `ERROR: function public.erp_apply_module_policies(unknown, unknown) does not exist`
 > **or with**

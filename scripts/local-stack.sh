@@ -132,7 +132,7 @@ EOF
   fi
 
   echo "stack is up: http://127.0.0.1:$GATEWAY_PORT"
-  "$0" env
+  bash "$0" env
 }
 
 print_env() {

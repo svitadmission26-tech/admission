@@ -817,66 +817,68 @@ function AdmissionField({
 		const removeRow = (index) => onChange(rows.filter((_, i) => i !== index).map(recompute));
 		return (
 			<div className="admission-table-field">
-				<table>
-					<thead>
-						<tr>
-							<th>Subject code</th>
-							<th>Subject name</th>
-							<th>Theory max</th>
-							<th>Theory marks</th>
-							<th>Practical max</th>
-							<th>Practical marks</th>
-							<th>Total max</th>
-							<th>Total marks</th>
-							<th>Grade / Result</th>
-							<th>Theory</th>
-							<th>Practical</th>
-							<th></th>
-						</tr>
-					</thead>
-					<tbody>
-						{rows.map((row, index) => (
-							<tr key={index}>
-								<td>
-									<input type="text" value={row.subject_code ?? ''} onChange={(e) => updateCell(index, 'subject_code', e.target.value)} />
-								</td>
-								<td>
-									<input type="text" value={row.subject_name ?? ''} onChange={(e) => updateCell(index, 'subject_name', e.target.value)} />
-								</td>
-								<td>
-									<input type="number" disabled={!row.theory_enabled} value={row.theory_max ?? ''} onChange={(e) => updateCell(index, 'theory_max', e.target.value)} />
-								</td>
-								<td>
-									<input type="number" disabled={!row.theory_enabled} value={row.theory_marks ?? ''} onChange={(e) => updateCell(index, 'theory_marks', e.target.value)} />
-								</td>
-								<td>
-									<input type="number" disabled={!row.practical_enabled} value={row.practical_max ?? ''} onChange={(e) => updateCell(index, 'practical_max', e.target.value)} />
-								</td>
-								<td>
-									<input type="number" disabled={!row.practical_enabled} value={row.practical_marks ?? ''} onChange={(e) => updateCell(index, 'practical_marks', e.target.value)} />
-								</td>
-								<td>
-									<input type="number" readOnly value={row.total_max ?? ''} />
-								</td>
-								<td>
-									<input type="number" readOnly value={row.total_marks ?? ''} />
-								</td>
-								<td>
-									<input type="text" value={row.grade ?? ''} onChange={(e) => updateCell(index, 'grade', e.target.value)} />
-								</td>
-								<td>
-									<input type="checkbox" checked={Boolean(row.theory_enabled)} onChange={(e) => updateCell(index, 'theory_enabled', e.target.checked)} />
-								</td>
-								<td>
-									<input type="checkbox" checked={Boolean(row.practical_enabled)} onChange={(e) => updateCell(index, 'practical_enabled', e.target.checked)} />
-								</td>
-								<td>
-									<button type="button" onClick={() => removeRow(index)}>×</button>
-								</td>
+				<div className="admission-table-scroll">
+					<table>
+						<thead>
+							<tr>
+								<th>Subject code</th>
+								<th>Subject name</th>
+								<th>Theory max</th>
+								<th>Theory marks</th>
+								<th>Practical max</th>
+								<th>Practical marks</th>
+								<th>Total max</th>
+								<th>Total marks</th>
+								<th>Grade / Result</th>
+								<th>Theory</th>
+								<th>Practical</th>
+								<th></th>
 							</tr>
-						))}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							{rows.map((row, index) => (
+								<tr key={index}>
+									<td>
+										<input type="text" value={row.subject_code ?? ''} onChange={(e) => updateCell(index, 'subject_code', e.target.value)} />
+									</td>
+									<td>
+										<input type="text" value={row.subject_name ?? ''} onChange={(e) => updateCell(index, 'subject_name', e.target.value)} />
+									</td>
+									<td>
+										<input type="number" disabled={!row.theory_enabled} value={row.theory_max ?? ''} onChange={(e) => updateCell(index, 'theory_max', e.target.value)} />
+									</td>
+									<td>
+										<input type="number" disabled={!row.theory_enabled} value={row.theory_marks ?? ''} onChange={(e) => updateCell(index, 'theory_marks', e.target.value)} />
+									</td>
+									<td>
+										<input type="number" disabled={!row.practical_enabled} value={row.practical_max ?? ''} onChange={(e) => updateCell(index, 'practical_max', e.target.value)} />
+									</td>
+									<td>
+										<input type="number" disabled={!row.practical_enabled} value={row.practical_marks ?? ''} onChange={(e) => updateCell(index, 'practical_marks', e.target.value)} />
+									</td>
+									<td>
+										<input type="number" readOnly value={row.total_max ?? ''} />
+									</td>
+									<td>
+										<input type="number" readOnly value={row.total_marks ?? ''} />
+									</td>
+									<td>
+										<input type="text" value={row.grade ?? ''} onChange={(e) => updateCell(index, 'grade', e.target.value)} />
+									</td>
+									<td>
+										<input type="checkbox" checked={Boolean(row.theory_enabled)} onChange={(e) => updateCell(index, 'theory_enabled', e.target.checked)} />
+									</td>
+									<td>
+										<input type="checkbox" checked={Boolean(row.practical_enabled)} onChange={(e) => updateCell(index, 'practical_enabled', e.target.checked)} />
+									</td>
+									<td>
+										<button type="button" onClick={() => removeRow(index)}>×</button>
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
 				<button type="button" onClick={addRow}>Add subject</button>
 			</div>
 		);
@@ -2494,16 +2496,24 @@ function App() {
 			.order('display_order')
 			.then(({ data, error }) => {
 				if (cancelled || error) return;
-				const rows = (data ?? []).map((row) => ({
-					id: row.id,
-					subject_id: row.subject_id,
-					subject_name: row.subject_masters?.name || 'Subject',
-					theory_max: Number(row.theory_max || 0),
-					practical_max: Number(row.practical_max || 0),
-					has_practical: Boolean(row.has_practical),
-					theory_obtained: 0,
-					practical_obtained: 0,
-				}));
+				const rows = (data ?? [])
+					.sort(
+						(left, right) =>
+							left.display_order - right.display_order ||
+							(left.subject_masters?.name || '').localeCompare(
+								right.subject_masters?.name || '',
+							),
+					)
+					.map((row) => ({
+						id: row.id,
+						subject_id: row.subject_id,
+						subject_name: row.subject_masters?.name || 'Subject',
+						theory_max: Number(row.theory_max || 0),
+						practical_max: Number(row.practical_max || 0),
+						has_practical: Boolean(row.has_practical),
+						theory_obtained: 0,
+						practical_obtained: 0,
+					}));
 				setBoardSubjects(rows);
 				setBoardMarks(rows);
 			});
@@ -3427,7 +3437,7 @@ function App() {
 														)
 														.map((field) => (
 																<div
-																className={`admission-field field-width-${field.width || 'full'}`}
+																className={`admission-field field-width-${field.width || 'full'}${field.type === 'table' ? ' field-type-table' : ''}`}
 																key={field.key}
 															>
 																<span>
@@ -3827,7 +3837,7 @@ function App() {
 							</table>
 						</div>
 					</section>
-				) : ['Form Builder', 'Dynamic Forms'].includes(page) &&
+				) : ['Form Builder', 'Dynamic Forms', 'Manage Admission Forms'].includes(page) &&
 				  canAccessPage('Dynamic Forms') ? (
 					<Suspense fallback={<section className="panel">Loading Form Builder...</section>}>
 						<FormBuilderErrorBoundary>

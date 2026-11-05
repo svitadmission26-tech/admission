@@ -47,7 +47,7 @@ const fieldTypeLabels = {
 	photo: 'Document (Photo)',
 	document: 'Document (Document)',
 	branch: 'Branch Selection',
-	table: 'Table (Marks Entry)',
+	table: 'Marks Table',
 };
 // The label that is used when a field type is added from the multi select
 // panel. Every label can be changed afterwards with Configure.
@@ -235,12 +235,38 @@ function PreviewField({ field, branches = [] }) {
 				))}
 			</div>
 		);
-	if (field.type === 'table')
+	if (field.type === 'table') {
+		const rowCount = Number(field.rows) > 0 ? Number(field.rows) : 5;
 		return (
 			<div className="dfb-table-preview">
-				Marks table ({Number(field.rows) > 0 ? Number(field.rows) : 5} rows)
+				<div className="dfb-table-preview-scroll">
+					<table>
+						<thead>
+							<tr>
+								<th>Subject code</th>
+								<th>Subject name</th>
+								<th>Theory max</th>
+								<th>Theory marks</th>
+								<th>Practical max</th>
+								<th>Practical marks</th>
+								<th>Total max</th>
+								<th>Total marks</th>
+								<th>Grade / Result</th>
+							</tr>
+						</thead>
+						<tbody>
+							{Array.from({ length: rowCount }, (_, index) => (
+								<tr key={index}>
+									<td colSpan="9">Subject row {index + 1}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+				<small>Students can enter marks and add or remove subject rows.</small>
 			</div>
 		);
+	}
 	return <input {...common} type={field.type} />;
 }
 
@@ -285,7 +311,19 @@ export default function DynamicFormBuilder({ canManage = true }) {
 	const [fields, setFields] = useState([]);
 	const [branches, setBranches] = useState([]);
 	const [examMasters, setExamMasters] = useState([]);
+	const [boardMasters, setBoardMasters] = useState([]);
+	const [boardSubjects, setBoardSubjects] = useState([]);
+	const [boardSubjectsLoading, setBoardSubjectsLoading] = useState(false);
+	const [boardSubjectsError, setBoardSubjectsError] = useState('');
+	const [boardSubjectsRefresh, setBoardSubjectsRefresh] = useState(0);
 	const [examTabs, setExamTabs] = useState([]);
+	const [subjectBoardId, setSubjectBoardId] = useState('');
+	const [subjectName, setSubjectName] = useState('');
+	const [subjectCode, setSubjectCode] = useState('');
+	const [theoryMax, setTheoryMax] = useState('');
+	const [hasPractical, setHasPractical] = useState(true);
+	const [practicalMax, setPracticalMax] = useState('');
+	const [subjectBusy, setSubjectBusy] = useState(false);
 	const [bulkDraft, setBulkDraft] = useState(null);
 	const [preview, setPreview] = useState(false);
 	const [message, setMessage] = useState('');
@@ -298,6 +336,8 @@ export default function DynamicFormBuilder({ canManage = true }) {
 	const locked = readOnly;
 
 	async function loadForms() {
+		setLoading(true);
+		setMessage('');
 		try {
 			const [
 				formsResult,
@@ -308,6 +348,7 @@ export default function DynamicFormBuilder({ canManage = true }) {
 				profileFieldsResult,
 				branchesResult,
 				examMastersResult,
+				boardMastersResult,
 			] = await Promise.all([
 				supabase
 					.from('admission_forms')
@@ -320,6 +361,7 @@ export default function DynamicFormBuilder({ canManage = true }) {
 				supabase.from('student_profile_fields').select('id,label,key,input_type,required,default_value,force_uppercase,text_case,options').order('display_order'),
 				supabase.from('branches').select('id,name,course_id,college_id,active').order('name'),
 				supabase.from('exam_masters').select('id,code,name,active').eq('active', true).order('name'),
+				supabase.from('board_masters').select('id,name').eq('active', true).order('name'),
 			]);
 			// The forms are the important part of the screen. A failing lookup
 			// of a reference list must never empty the list, so the lookups
@@ -330,24 +372,35 @@ export default function DynamicFormBuilder({ canManage = true }) {
 			}
 			setForms(formsResult.data ?? []);
 			const lookups = [
-				[collegesResult, setColleges],
-				[coursesResult, setCourses],
-				[yearsResult, setAcademicYears],
-				[formTypesResult, setFormTypes],
-				[profileFieldsResult, setProfileFields],
-				[branchesResult, setBranches],
-				[examMastersResult, setExamMasters],
+				{ name: 'colleges', result: collegesResult, apply: setColleges },
+				{ name: 'courses', result: coursesResult, apply: setCourses },
+				{ name: 'academic years', result: yearsResult, apply: setAcademicYears },
+				{ name: 'form types', result: formTypesResult, apply: setFormTypes },
+				{
+					name: 'student profile fields',
+					result: profileFieldsResult,
+					apply: setProfileFields,
+				},
+				{ name: 'branches', result: branchesResult, apply: setBranches },
+				{ name: 'exam masters', result: examMastersResult, apply: setExamMasters },
+				{ name: 'board masters', result: boardMastersResult, apply: setBoardMasters },
 			];
-			const failed = lookups.filter(([result]) => result.error);
-			for (const [result, apply] of lookups) {
+			const failed = lookups.filter(({ result }) => result.error);
+			for (const { result, apply } of lookups) {
 				if (!result.error) apply(result.data ?? []);
 			}
 			if (failed.length) {
-				// The list stays usable, the reference lists keep the values
-				// that were loaded before.
-				const message = `The admission forms are listed, but some reference lists could not be loaded: ${failed
-					.map(([result]) => result.error.message)
+				const message = `The admission forms are listed, but these reference lists could not be loaded: ${failed
+					.map(({ name, result }) => `${name}: ${result.error.message}`)
 					.join(' | ')}`;
+				setMessage(message);
+				return message;
+			}
+			const empty = lookups
+				.filter(({ result }) => !result.data?.length)
+				.map(({ name }) => name);
+			if (empty.length) {
+				const message = `No rows are visible for: ${empty.join(', ')}. Check that these master records exist and that your account can read them.`;
 				setMessage(message);
 				return message;
 			}
@@ -378,6 +431,55 @@ export default function DynamicFormBuilder({ canManage = true }) {
 			});
 		} catch (error) {
 			setMessage(errorMessage(error));
+		}
+	}
+
+	async function addBoardSubject() {
+		if (!canManage || subjectBusy) return;
+		if (!subjectBoardId) {
+			setMessage('Select a board before adding a subject.');
+			return;
+		}
+		if (!subjectName.trim()) {
+			setMessage('Enter a subject name.');
+			return;
+		}
+		const theory = Number(theoryMax);
+		const practical = Number(practicalMax || 0);
+		if (
+			!Number.isFinite(theory) ||
+			theory < 0 ||
+			!Number.isFinite(practical) ||
+			practical < 0
+		) {
+			setMessage('Maximum marks must be zero or more.');
+			return;
+		}
+
+		setSubjectBusy(true);
+		setMessage('');
+		try {
+			const { error } = await supabase.rpc('admin_add_board_subject', {
+				p_board_id: subjectBoardId,
+				p_name: subjectName.trim(),
+				p_code: subjectCode.trim() || null,
+				p_theory_max: theory,
+				p_has_practical: hasPractical,
+				p_practical_max: hasPractical ? practical : 0,
+			});
+			if (error) throw error;
+			setBoardSubjectsRefresh((current) => current + 1);
+			setSubjectName('');
+			setSubjectCode('');
+			setTheoryMax('');
+			setPracticalMax('');
+			setMessage(
+				'Subject added to this board. It will appear in the student marks grid for this board.',
+			);
+		} catch (error) {
+			setMessage(errorMessage(error));
+		} finally {
+			setSubjectBusy(false);
 		}
 	}
 
@@ -475,6 +577,53 @@ export default function DynamicFormBuilder({ canManage = true }) {
 	useEffect(() => {
 		void loadForms();
 	}, []);
+
+	useEffect(() => {
+		let cancelled = false;
+		if (!subjectBoardId) {
+			setBoardSubjects([]);
+			setBoardSubjectsError('');
+			setBoardSubjectsLoading(false);
+			return () => {
+				cancelled = true;
+			};
+		}
+
+		setBoardSubjectsLoading(true);
+		setBoardSubjectsError('');
+		supabase
+			.from('board_subjects')
+			.select('id,theory_max,practical_max,has_practical,display_order,subject_masters(name,code)')
+			.eq('board_id', subjectBoardId)
+			.eq('active', true)
+			.order('display_order')
+			.then(({ data, error }) => {
+				if (cancelled) return;
+				if (error) {
+					setBoardSubjectsError(error.message);
+					return;
+				}
+				setBoardSubjects(
+					(data ?? []).sort(
+						(left, right) =>
+							left.display_order - right.display_order ||
+							(left.subject_masters?.name || '').localeCompare(
+								right.subject_masters?.name || '',
+							),
+					),
+				);
+			})
+			.catch((error) => {
+				if (!cancelled) setBoardSubjectsError(errorMessage(error));
+			})
+			.finally(() => {
+				if (!cancelled) setBoardSubjectsLoading(false);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [subjectBoardId, boardSubjectsRefresh]);
 
 	function resetForm() {
 		setSelected(null);
@@ -690,9 +839,7 @@ export default function DynamicFormBuilder({ canManage = true }) {
 				sectionId: activeSectionId,
 				options:
 					type === 'select'
-						? ['Option 1', 'Option 2']
-						: type === 'branch'
-							? courseBranches().map((branch) => branch.id)
+							? ['Option 1', 'Option 2']
 							: [],
 			});
 		}
@@ -1020,6 +1167,12 @@ export default function DynamicFormBuilder({ canManage = true }) {
 			(!listCourseId || form.course_id === listCourseId) &&
 			(!listFormTypeId || form.form_type_id === listFormTypeId),
 	);
+	const availableCourses = courses.filter(
+		(course) =>
+			!collegeId ||
+			!course.college_id ||
+			course.college_id === collegeId,
+	);
 	// The fields of the section that is open in the schema builder. The
 	// position is used to enable the move up and move down buttons.
 	const sectionFieldRows = fields
@@ -1041,6 +1194,13 @@ export default function DynamicFormBuilder({ canManage = true }) {
 					</button>
 					{canManage && (
 						<>
+							<button
+								type="button"
+								disabled={loading || busy}
+								onClick={() => void loadForms()}
+							>
+								Refresh data
+							</button>
 							<button type="button" onClick={() => void downloadFormTemplate()}>
 								Download template
 							</button>
@@ -1204,6 +1364,15 @@ export default function DynamicFormBuilder({ canManage = true }) {
 							</h3>
 							<button type="button" onClick={() => setFormView('list')}>← Back</button>
 						</div>
+						{canManage && (
+							<button
+								type="button"
+								disabled={loading || busy}
+								onClick={() => void loadForms()}
+							>
+								Refresh data
+							</button>
+						)}
 						<button type="button" onClick={() => setPreview((current) => !current)}>
 							{preview ? 'Edit fields' : 'Live preview'}
 						</button>
@@ -1260,17 +1429,28 @@ export default function DynamicFormBuilder({ canManage = true }) {
 								value={courseId}
 								onChange={(event) => {
 									const nextCourseId = event.target.value;
+									if (nextCourseId !== courseId) {
+										setFields((current) =>
+											current.map((field) =>
+												field.type === 'branch' && field.options.length
+													? { ...field, options: [] }
+													: field,
+											),
+										);
+									}
 									setCourseId(nextCourseId);
 									const selectedCourse = courses.find((course) => course.id === nextCourseId);
 									if (selectedCourse?.college_id) setCollegeId(selectedCourse.college_id);
 								}}
 							>
-								<option value="">Select Course</option>
-								{courses
-									.filter((course) => !collegeId || !course.college_id || course.college_id === collegeId)
-									.map((course) => (
-										<option key={course.id} value={course.id}>{course.name}</option>
-									))}
+								<option value="">
+									{availableCourses.length
+										? 'Select Course'
+										: 'No courses available for this college'}
+								</option>
+								{availableCourses.map((course) => (
+									<option key={course.id} value={course.id}>{course.name}</option>
+								))}
 							</select>
 						</label>
 						<label>
@@ -1280,7 +1460,11 @@ export default function DynamicFormBuilder({ canManage = true }) {
 								value={academicYear}
 								onChange={(event) => setAcademicYear(event.target.value)}
 							>
-								<option value="">Select Cycle</option>
+								<option value="">
+									{academicYears.length
+										? 'Select Cycle'
+										: 'No academic years available'}
+								</option>
 								{academicYears.map((year) => (
 									<option key={year.id} value={year.name}>{year.name}</option>
 								))}
@@ -1293,7 +1477,11 @@ export default function DynamicFormBuilder({ canManage = true }) {
 								value={formTypeId}
 								onChange={(event) => setFormTypeId(event.target.value)}
 							>
-								<option value="">Select Form Type</option>
+								<option value="">
+									{formTypes.length
+										? 'Select Form Type'
+										: 'No form types available'}
+								</option>
 								{formTypes.map((type) => (
 									<option key={type.id} value={type.id}>{type.name}</option>
 								))}
@@ -1317,7 +1505,9 @@ export default function DynamicFormBuilder({ canManage = true }) {
 								value={collegeId}
 								onChange={(event) => setCollegeId(event.target.value)}
 							>
-								<option value="">Select college</option>
+								<option value="">
+									{colleges.length ? 'Select college' : 'No colleges available'}
+								</option>
 								{colleges.map((college) => (
 									<option key={college.id} value={college.id}>{college.name}</option>
 								))}
@@ -1426,6 +1616,170 @@ export default function DynamicFormBuilder({ canManage = true }) {
 							independently and are not combined automatically.
 						</small>
 					</div>
+					{examTabs.includes('board') && (
+						<fieldset className="dfb-admission-types">
+							<legend className="dfb-field-label">
+								Add Board Subjects
+							</legend>
+							<p>
+								To add subjects for the student marks table, choose a board,
+								enter the subject and marks limits, then select{' '}
+								<strong>Add subject to board</strong>. Subjects are listed in
+								the same sequence used in the student form.
+							</p>
+							{!boardMasters.length ? (
+								<p className="dfb-empty">
+									No active boards are available. Add a board in Board Masters
+									first.
+								</p>
+							) : (
+								<>
+									<div className="dfb-grid">
+										<label>
+											Board
+											<select
+												disabled={locked || subjectBusy}
+												value={subjectBoardId}
+												onChange={(event) =>
+													setSubjectBoardId(event.target.value)
+												}
+											>
+												<option value="">Select board</option>
+												{boardMasters.map((board) => (
+													<option key={board.id} value={board.id}>
+														{board.name}
+													</option>
+												))}
+											</select>
+										</label>
+										<label>
+											Subject name
+											<input
+												disabled={locked || subjectBusy}
+												value={subjectName}
+												onChange={(event) =>
+													setSubjectName(event.target.value)
+												}
+											/>
+										</label>
+										<label>
+											Subject code (optional)
+											<input
+												disabled={locked || subjectBusy}
+												value={subjectCode}
+												onChange={(event) =>
+													setSubjectCode(event.target.value)
+												}
+											/>
+										</label>
+										<label>
+											Theory maximum marks
+											<input
+												disabled={locked || subjectBusy}
+												type="number"
+												min="0"
+												step="any"
+												value={theoryMax}
+												onChange={(event) =>
+													setTheoryMax(event.target.value)
+												}
+											/>
+										</label>
+										<label className="dfb-check">
+											<input
+												disabled={locked || subjectBusy}
+												type="checkbox"
+												checked={hasPractical}
+												onChange={(event) =>
+													setHasPractical(event.target.checked)
+												}
+											/>
+											Has practical exam
+										</label>
+										{hasPractical && (
+											<label>
+												Practical maximum marks
+												<input
+													disabled={locked || subjectBusy}
+													type="number"
+													min="0"
+													step="any"
+													value={practicalMax}
+													onChange={(event) =>
+														setPracticalMax(event.target.value)
+													}
+												/>
+											</label>
+										)}
+									</div>
+									<button
+										type="button"
+										disabled={
+											locked ||
+											subjectBusy ||
+											!subjectBoardId ||
+											!subjectName.trim()
+										}
+										onClick={() => void addBoardSubject()}
+									>
+										{subjectBusy ? 'Adding subject…' : '+ Add subject to board'}
+									</button>
+									<small>
+										The subject is saved in Subject Masters and linked to this
+										board with its marks limits.
+									</small>
+									{subjectBoardId && (
+										<div className="dfb-board-subjects">
+											<h4>
+												Subjects for{' '}
+												{boardMasters.find((board) => board.id === subjectBoardId)?.name}
+											</h4>
+											{boardSubjectsLoading ? (
+												<p className="dfb-empty">Loading board subjects…</p>
+											) : boardSubjectsError ? (
+												<p className="dfb-error" role="alert">
+													Could not load board subjects: {boardSubjectsError}
+												</p>
+											) : boardSubjects.length ? (
+												<div className="dfb-forms-table-wrap">
+													<table className="dfb-forms-table">
+														<thead>
+															<tr>
+																<th>Sequence</th>
+																<th>Subject</th>
+																<th>Code</th>
+																<th>Theory Max</th>
+																<th>Practical Max</th>
+															</tr>
+														</thead>
+														<tbody>
+															{boardSubjects.map((subject, index) => (
+																<tr key={subject.id}>
+																	<td>{index + 1}</td>
+																	<td>{subject.subject_masters?.name || 'Subject'}</td>
+																	<td>{subject.subject_masters?.code || '—'}</td>
+																	<td>{subject.theory_max}</td>
+																	<td>
+																		{subject.has_practical
+																			? subject.practical_max
+																			: '—'}
+																	</td>
+																</tr>
+															))}
+														</tbody>
+													</table>
+												</div>
+											) : (
+												<p className="dfb-empty">
+													No active subjects are configured for this board yet.
+												</p>
+											)}
+										</div>
+									)}
+								</>
+							)}
+						</fieldset>
+					)}
 					{preview ? (
 						<div className={`dfb-preview dfb-preview-${formLayout}`}>
 							{showCollegeLogo &&
@@ -1542,6 +1896,11 @@ export default function DynamicFormBuilder({ canManage = true }) {
 											<strong>{activeSectionTitle}</strong>
 											<small className="dfb-sr-hint">
 												The Sr. No. shows the order of the field in this section.
+											</small>
+											<small className="dfb-sr-hint">
+												To add a marks table: select <b>Add Field</b>, choose{' '}
+												<b>Marks Table</b> under Type, set the starting row count,
+												then save the form.
 											</small>
 										</div>
 										<div className="dfb-field-actions">
@@ -1892,6 +2251,11 @@ export default function DynamicFormBuilder({ canManage = true }) {
 												})
 											}
 										/>
+										<small>
+											These are the starting subject rows. Students can add or
+											remove rows when filling in the form. Use Live preview to
+											see the table layout.
+										</small>
 									</label>
 								)}
 								{fieldDraft.type === 'branch' && (
@@ -1917,9 +2281,11 @@ export default function DynamicFormBuilder({ canManage = true }) {
 											</div>
 										) : (
 											<p className="dfb-empty">
-												{courseId
-													? 'This course has no branches yet.'
-													: 'Select a course on this form to list its branches.'}
+												{!branches.length
+													? 'No branches are visible. Check the Branches master list and your account access.'
+													: courseId
+														? 'This course has no branches yet.'
+														: 'Select a course on this form to list its branches.'}
 											</p>
 										)}
 										<small>

@@ -2,31 +2,33 @@
 -- The template policy relies on the shared admin detector. When a database is
 -- still being bootstrapped or a legacy install is missing that helper, the
 -- migration should not crash the app with a 500 during page load.
-do $$
+do $migration$
 begin
   if to_regprocedure('public.is_admin()') is null then
     begin
-      create or replace function public.is_admin()
-      returns boolean
-      language sql
-      stable
-      security definer
-      set search_path = public, pg_temp
-      as $$
-        select exists (
-          select 1
-          from public.profiles
-          where id = auth.uid()
-            and role = 'admin'
-        );
-      $$;
+      execute $create_admin$
+        create or replace function public.is_admin()
+        returns boolean
+        language sql
+        stable
+        security definer
+        set search_path = public, pg_temp
+        as $function_body$
+          select exists (
+            select 1
+            from public.profiles
+            where id = auth.uid()
+              and role = 'admin'
+          );
+        $function_body$
+      $create_admin$;
     exception
       when others then
         raise warning 'the fallback admin helper could not be created: %', sqlerrm;
     end;
   end if;
 end;
-$$;
+$migration$;
 
 create table if not exists public.pdf_templates (
   id uuid primary key default gen_random_uuid(),

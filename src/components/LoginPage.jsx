@@ -63,7 +63,7 @@ export default function LoginPage({
 		() => modules.find((item) => item.id === selectedModuleId) ?? null,
 		[modules, selectedModuleId],
 	);
-	const isStudentModule = activeModule?.id === STUDENT_MODULE_ID;
+	const isStudentModule = selectedModuleId === STUDENT_MODULE_ID;
 
 	useEffect(() => {
 		if (recoveryMode) setMode('reset');

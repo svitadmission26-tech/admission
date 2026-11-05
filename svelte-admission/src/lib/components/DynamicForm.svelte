@@ -622,7 +622,14 @@
     function getCalculatedValue(rowKey: string, formula?: string) {
         if (!formula || !formData[rowKey]) return '';
         try {
-            const scope = { ...formData[rowKey] };
+            const scope = Object.fromEntries(
+                Object.entries(formData[rowKey]).map(([key, rawValue]) => [
+                    key,
+                    rawValue && typeof rawValue === 'object' && 'value' in rawValue
+                        ? rawValue.value
+                        : rawValue
+                ])
+            );
             // Convert strings to numbers for evaluation if possible
             for (const k in scope) {
                 if (typeof scope[k] === 'string' && !isNaN(Number(scope[k]))) {
@@ -636,6 +643,29 @@
         } catch (e) {
             return '';
         }
+    }
+
+    function getTableCellNumber(rowKey: string, column: TableColumn): number | null {
+        const rawValue = column.type === 'calculated'
+            ? getCalculatedValue(rowKey, column.formula)
+            : formData[rowKey]?.[column.key]?.value ?? formData[rowKey]?.[column.key];
+
+        if (rawValue === '' || rawValue === null || rawValue === undefined) return null;
+        const value = Number(rawValue);
+        return Number.isFinite(value) ? value : null;
+    }
+
+    function getTableAggregate(fields: FormField[], column: TableColumn): number {
+        const values = fields
+            .map(field => getTableCellNumber(getKey(field), column))
+            .filter((value): value is number => value !== null);
+
+        if (column.aggregate === 'count') return values.length;
+        if (!values.length) return 0;
+        if (column.aggregate === 'mean') return values.reduce((total, value) => total + value, 0) / values.length;
+        if (column.aggregate === 'max') return Math.max(...values);
+        if (column.aggregate === 'min') return Math.min(...values);
+        return values.reduce((total, value) => total + value, 0);
     }
 </script>
 
@@ -988,37 +1018,21 @@
                             {#each section.tableColumns || [] as col (col.key)}
                                 <td>
                                     {#if col.aggregate}
-                                        {@const values = datagridFields.map(f => {
-                                            const fkey = getKey(f);
-                                            const val = formData[fkey]?.[col.key]?.value ?? formData[fkey]?.[col.key];
-                                            return val ? Number(val) : 0;
-                                        }).filter(v => !isNaN(v))}
-                                        <strong>
-                                        {#if col.aggregate === 'sum'}
-                                            {values.reduce((a, b) => a + b, 0)}
-                                        {:else if col.aggregate === 'mean'}
-                                            {values.length > 0 ? (values.reduce((a, b) => a + b, 0) / values.length).toFixed(2) : 0}
-                                        {:else if col.aggregate === 'max'}
-                                            {Math.max(...values)}
-                                        {:else if col.aggregate === 'min'}
-                                            {Math.min(...values)}
-                                        {:else if col.aggregate === 'count'}
-                                            {values.length}
-                                        {/if}
-                                        </strong>
-                                        {#if col.is_merit && values.length > 0}
+                                        {@const aggregateValue = getTableAggregate(datagridFields, col)}
+                                        <strong>{col.aggregate === 'mean' ? aggregateValue.toFixed(2) : aggregateValue}</strong>
+                                        {#if col.is_merit && col.aggregate === 'sum'}
                                             {@const maxScores = datagridFields.map(f => {
                                                 const fkey = getKey(f);
                                                 const ms = formData[fkey]?.[col.key]?.max_score ?? 
                                                          f.column_max_scores?.[col.key] ?? 
                                                          col.default_max_score ?? 100;
                                                 return ms ? Number(ms) : 0;
-                                            }).filter(v => !isNaN(v) && v > 0)}
+                                            }).filter(v => Number.isFinite(v) && v > 0)}
                                             {@const totalMax = maxScores.reduce((a, b) => a + b, 0)}
-                                            {@const percentage = ((values.reduce((a, b) => a + b, 0) / totalMax) * 100).toFixed(1)}
-                                            <small class="text-muted d-block">
-                                                Max: {totalMax} | {percentage}%
-                                            </small>
+                                            {#if totalMax > 0}
+                                                {@const percentage = ((aggregateValue / totalMax) * 100).toFixed(1)}
+                                                <small class="text-muted d-block">Max: {totalMax} | {percentage}%</small>
+                                            {/if}
                                         {/if}
                                     {:else}
                                         -

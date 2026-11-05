@@ -283,6 +283,45 @@ check(
 	),
 	'the policy can crash when the permission helper is missing',
 );
+check(
+	'053_phase13_pdf_templates: guards the admin helper it calls',
+	/to_regprocedure\('public\.is_admin\(\)'\) is null/i.test(
+		contents.get('053_phase13_pdf_templates.sql') ?? '',
+	),
+	'the policy can crash when the admin helper is missing',
+);
+check(
+	'053_phase13_pdf_templates: creates the fallback admin helper dynamically',
+	/do \$migration\$[\s\S]*execute \$create_admin\$[\s\S]*as \$function_body\$[\s\S]*\$function_body\$[\s\S]*\$create_admin\$;[\s\S]*end;\s*\$migration\$;/i.test(
+		contents.get('053_phase13_pdf_templates.sql') ?? '',
+	),
+	'the fallback function DDL must be executed from the DO block',
+);
+check(
+	'054_dynamic_form_board_subjects: subject setup is admin-only and atomic',
+	/create or replace function public\.admin_add_board_subject\(/i.test(
+		contents.get('054_dynamic_form_board_subjects.sql') ?? '',
+	) &&
+		/public\.is_admin\(\)/i.test(
+			contents.get('054_dynamic_form_board_subjects.sql') ?? '',
+		) &&
+		/from public\.board_masters where id = p_board_id and active/i.test(
+			contents.get('054_dynamic_form_board_subjects.sql') ?? '',
+		) &&
+		/p_theory_max::text in \('NaN', 'Infinity', '-Infinity'\)/i.test(
+			contents.get('054_dynamic_form_board_subjects.sql') ?? '',
+		) &&
+		/p_practical_max::text in \('NaN', 'Infinity', '-Infinity'\)/i.test(
+			contents.get('054_dynamic_form_board_subjects.sql') ?? '',
+		) &&
+		/insert into public\.subject_masters[\s\S]*insert into public\.board_subjects/i.test(
+			contents.get('054_dynamic_form_board_subjects.sql') ?? '',
+		) &&
+		/grant execute on function public\.admin_add_board_subject[\s\S]*to authenticated/i.test(
+			contents.get('054_dynamic_form_board_subjects.sql') ?? '',
+		),
+	'the subject and board mapping must be created atomically for administrators',
+);
 
 // ---------------------------------------------------------------------------
 // The shared masters

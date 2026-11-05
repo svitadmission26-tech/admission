@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase';
+import { moveFieldInList, moveFieldToPosition } from '../lib/formFields';
 import './InquiryFormBuilder.css';
 
 const freshSection = () => ({
@@ -21,6 +22,17 @@ const freshField = (sectionId) => ({
 	visibility: { fieldKey: '', operator: 'equals', value: '' },
 	options: [],
 });
+const defaultBranding = {
+	universityName: '',
+	logoUrl: '',
+	address: '',
+	contactNumber: '',
+	chatbotCollegeId: '',
+	heroTitle: 'Your future starts with a conversation.',
+	heroDescription:
+		'Ask us about courses, eligibility, or admissions. Submit your inquiry and our team will contact you.',
+	footerText: 'Admission guidance · Course information · Follow-up support',
+};
 
 const slugify = (value) =>
 	value
@@ -77,6 +89,7 @@ export const fieldTypeLabels = {
 
 export default function InquiryFormBuilder() {
 	const [forms, setForms] = useState([]);
+	const [colleges, setColleges] = useState([]);
 	const [academicYears, setAcademicYears] = useState([]);
 	const [profileFields, setProfileFields] = useState([]);
 	const [selectedId, setSelectedId] = useState('');
@@ -86,16 +99,19 @@ export default function InquiryFormBuilder() {
 	const [slugEdited, setSlugEdited] = useState(false);
 	const [active, setActive] = useState(true);
 	const [description, setDescription] = useState('');
+	const [branding, setBranding] = useState(defaultBranding);
 	const [layout, setLayout] = useState('cards');
 	const [sections, setSections] = useState([freshSection()]);
 	const [fields, setFields] = useState([]);
 	const [activeSectionId, setActiveSectionId] = useState('');
 	const [fieldDraft, setFieldDraft] = useState(null);
 	const [editingFieldIndex, setEditingFieldIndex] = useState(null);
+	const [fieldOrderInputs, setFieldOrderInputs] = useState({});
 	const [showPreview, setShowPreview] = useState(false);
 	const [message, setMessage] = useState('');
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
+	const [logoUploading, setLogoUploading] = useState(false);
 
 	const currentSection = sections.find((section) => section.id === activeSectionId);
 	const activeFields = useMemo(
@@ -105,20 +121,27 @@ export default function InquiryFormBuilder() {
 
 	async function loadData() {
 		setLoading(true);
-		const [formsResult, yearsResult, profileResult] = await Promise.all([
+		const [formsResult, yearsResult, profileResult, collegesResult] = await Promise.all([
 			supabase.from('inquiry_forms').select('*').order('created_at', { ascending: false }),
 			supabase.from('academic_years').select('name').order('name', { ascending: false }),
 			supabase
 				.from('student_profile_fields')
 				.select('id,label,key,input_type,required,default_value,text_case,options,display_order')
 				.order('display_order'),
+			supabase.from('colleges').select('id,name').order('name'),
 		]);
-		const firstError = [formsResult.error, yearsResult.error, profileResult.error].find(Boolean);
+		const firstError = [
+			formsResult.error,
+			yearsResult.error,
+			profileResult.error,
+			collegesResult.error,
+		].find(Boolean);
 		if (firstError) setMessage(`Could not load inquiry form setup: ${firstError.message}`);
 		else {
 			setForms(formsResult.data ?? []);
 			setAcademicYears(yearsResult.data ?? []);
 			setProfileFields(profileResult.data ?? []);
+			setColleges(collegesResult.data ?? []);
 		}
 		setLoading(false);
 	}
@@ -141,12 +164,14 @@ export default function InquiryFormBuilder() {
 		setSlugEdited(false);
 		setActive(true);
 		setDescription('');
+		setBranding(defaultBranding);
 		setLayout('cards');
 		setSections([section]);
 		setFields([]);
 		setActiveSectionId(section.id);
 		setFieldDraft(null);
 		setEditingFieldIndex(null);
+		setFieldOrderInputs({});
 		setShowPreview(false);
 		setMessage('');
 	}
@@ -163,12 +188,21 @@ export default function InquiryFormBuilder() {
 		setSlugEdited(true);
 		setActive(form.is_active !== false);
 		setDescription(form.description || '');
+		setBranding({ ...defaultBranding, ...(form.branding || {}) });
 		setLayout(form.layout || 'cards');
 		setSections(nextSections);
-		setFields(Array.isArray(form.fields) ? form.fields : []);
+		setFields(
+			Array.isArray(form.fields)
+				? form.fields.map((field) => ({
+						...field,
+						sectionId: field.sectionId || nextSections[0].id,
+					}))
+				: [],
+		);
 		setActiveSectionId(nextSections[0].id);
 		setFieldDraft(null);
 		setEditingFieldIndex(null);
+		setFieldOrderInputs({});
 		setShowPreview(false);
 		setMessage('');
 	}
@@ -287,6 +321,47 @@ export default function InquiryFormBuilder() {
 		setFields((current) => current.filter((_, fieldIndex) => fieldIndex !== index));
 	}
 
+	function moveField(index, offset) {
+		setFields((current) => moveFieldInList(current, index, offset));
+	}
+
+	function moveFieldToSr(index, serialNumber, fieldKey) {
+		const target = Number(serialNumber);
+		if (!Number.isInteger(target) || target < 1 || target > activeFields.length) {
+			setMessage(`Enter a serial number from 1 to ${activeFields.length}.`);
+			return;
+		}
+		setFields((current) => moveFieldToPosition(current, index, target - 1));
+		setFieldOrderInputs((current) => ({ ...current, [fieldKey]: '' }));
+		setMessage('');
+	}
+
+	async function uploadBrandLogo(file) {
+		if (!file) return;
+		if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) {
+			setMessage('Choose a JPG, PNG, or WebP logo no larger than 2 MB.');
+			return;
+		}
+		setLogoUploading(true);
+		setMessage('');
+		try {
+			const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+			const path = `inquiry-forms/${crypto.randomUUID()}-${safeName}`;
+			const { error } = await supabase.storage.from('college-logos').upload(path, file, {
+				contentType: file.type,
+				upsert: false,
+			});
+			if (error) throw error;
+			const { data } = supabase.storage.from('college-logos').getPublicUrl(path);
+			setBranding((current) => ({ ...current, logoUrl: data.publicUrl }));
+			setMessage('University logo uploaded. Save the inquiry form to publish it.');
+		} catch (error) {
+			setMessage(`Could not upload university logo: ${error.message}`);
+		} finally {
+			setLogoUploading(false);
+		}
+	}
+
 	async function saveForm(event) {
 		event.preventDefault();
 		if (!supabase || busy) return;
@@ -306,6 +381,17 @@ export default function InquiryFormBuilder() {
 			is_active: active,
 			description: description.trim(),
 			layout,
+			branding: {
+				...branding,
+				universityName: branding.universityName.trim(),
+				logoUrl: branding.logoUrl.trim(),
+				address: branding.address.trim(),
+				contactNumber: branding.contactNumber.trim(),
+				chatbotCollegeId: branding.chatbotCollegeId,
+				heroTitle: branding.heroTitle.trim(),
+				heroDescription: branding.heroDescription.trim(),
+				footerText: branding.footerText.trim(),
+			},
 			sections,
 			fields,
 			updated_at: new Date().toISOString(),
@@ -401,6 +487,99 @@ export default function InquiryFormBuilder() {
 						<textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} />
 					</label>
 
+					<section className="inquiry-branding">
+						<h3>Public Page Branding</h3>
+						<p>These details appear on the blue panel of the public inquiry page.</p>
+						<div className="inquiry-branding-grid">
+							<label>
+								University / Institute Name
+								<input
+									maxLength={160}
+									value={branding.universityName}
+									onChange={(event) => setBranding((current) => ({ ...current, universityName: event.target.value }))}
+									placeholder="e.g. SVIT"
+								/>
+							</label>
+							<label>
+								Contact Number
+								<input
+									type="tel"
+									maxLength={30}
+									value={branding.contactNumber}
+									onChange={(event) => setBranding((current) => ({ ...current, contactNumber: event.target.value }))}
+									placeholder="Admission office phone"
+								/>
+							</label>
+							<label className="inquiry-branding-wide">
+								Admission Chatbot College
+								<select
+									value={branding.chatbotCollegeId}
+									onChange={(event) => setBranding((current) => ({ ...current, chatbotCollegeId: event.target.value }))}
+								>
+									<option value="">Select a college for chatbot FAQs</option>
+									{colleges.map((college) => (
+										<option key={college.id} value={college.id}>{college.name}</option>
+									))}
+								</select>
+								<small>Select the college whose published FAQs should appear on this inquiry page.</small>
+							</label>
+							<label className="inquiry-branding-wide">
+								Address
+								<textarea
+									rows={2}
+									maxLength={500}
+									value={branding.address}
+									onChange={(event) => setBranding((current) => ({ ...current, address: event.target.value }))}
+									placeholder="University / institute address"
+								/>
+							</label>
+							<label className="inquiry-branding-wide">
+								University Logo
+								<input
+									type="file"
+									accept="image/jpeg,image/png,image/webp"
+									disabled={logoUploading}
+									onChange={(event) => {
+										void uploadBrandLogo(event.target.files?.[0]);
+										event.target.value = '';
+									}}
+								/>
+								<small>Upload JPG, PNG, or WebP up to 2 MB.</small>
+								{branding.logoUrl && (
+									<span className="inquiry-branding-logo">
+										<img src={branding.logoUrl} alt="University logo preview" />
+										<button type="button" onClick={() => setBranding((current) => ({ ...current, logoUrl: '' }))}>Remove logo</button>
+									</span>
+								)}
+							</label>
+							<label className="inquiry-branding-wide">
+								Page Headline
+								<input
+									maxLength={180}
+									value={branding.heroTitle}
+									onChange={(event) => setBranding((current) => ({ ...current, heroTitle: event.target.value }))}
+								/>
+							</label>
+							<label className="inquiry-branding-wide">
+								Page Introduction
+								<textarea
+									rows={3}
+									maxLength={600}
+									value={branding.heroDescription}
+									onChange={(event) => setBranding((current) => ({ ...current, heroDescription: event.target.value }))}
+								/>
+							</label>
+							<label className="inquiry-branding-wide">
+								Footer Text
+								<input
+									maxLength={180}
+									value={branding.footerText}
+									onChange={(event) => setBranding((current) => ({ ...current, footerText: event.target.value }))}
+								/>
+							</label>
+						</div>
+					</section>
+
 					<div className="inquiry-form-structure">
 						<h3>Form Structure</h3>
 						<div className="inquiry-form-layout">
@@ -444,12 +623,63 @@ export default function InquiryFormBuilder() {
 								</div>
 								{activeFields.length ? (
 									<div className="inquiry-field-list">
-										{activeFields.map((field) => {
+										{activeFields.map((field, position) => {
 											const index = fields.indexOf(field);
 											return (
 												<article key={`${field.key}-${index}`}>
+													<span
+														className="inquiry-field-sr"
+														title={`Sr. No. ${position + 1} of ${activeFields.length}`}
+													>
+														{position + 1}
+													</span>
 													<div><strong>{field.label}</strong><small>{field.key} · {field.type}{field.required ? ' · Required' : ''}</small></div>
 													<div>
+														<button
+															type="button"
+															disabled={position === 0}
+															onClick={() => moveField(index, -1)}
+															aria-label={`Move ${field.label} up`}
+															title="Move up"
+														>
+															↑
+														</button>
+														<button
+															type="button"
+															disabled={position === activeFields.length - 1}
+															onClick={() => moveField(index, 1)}
+															aria-label={`Move ${field.label} down`}
+															title="Move down"
+														>
+															↓
+														</button>
+														<input
+															className="inquiry-field-sr-input"
+															type="number"
+															min="1"
+															max={activeFields.length}
+															value={fieldOrderInputs[field.key] ?? ''}
+															onChange={(event) =>
+																setFieldOrderInputs((current) => ({
+																	...current,
+																	[field.key]: event.target.value,
+																}))
+															}
+															onKeyDown={(event) => {
+																if (event.key === 'Enter') {
+																	event.preventDefault();
+																	moveFieldToSr(index, fieldOrderInputs[field.key], field.key);
+																}
+															}}
+															aria-label={`Move ${field.label} to Sr. No.`}
+															title="Enter the target Sr. No."
+														/>
+														<button
+															type="button"
+															onClick={() => moveFieldToSr(index, fieldOrderInputs[field.key], field.key)}
+														>
+															Move
+														</button>
 														<button type="button" onClick={() => openFieldEditor(index)}>Edit</button>
 														<button type="button" className="danger" onClick={() => removeField(index)}>Delete</button>
 													</div>
@@ -463,7 +693,7 @@ export default function InquiryFormBuilder() {
 					</div>
 					<div className="inquiry-builder-actions">
 						<button type="button" onClick={() => setShowPreview((value) => !value)}>{showPreview ? 'Hide Preview' : 'Preview Form'}</button>
-						<button className="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Create Inquiry Form'}</button>
+						<button className="primary" type="submit" disabled={busy || logoUploading}>{busy ? 'Saving…' : 'Save Inquiry Form'}</button>
 					</div>
 				</form>
 
@@ -547,6 +777,16 @@ export default function InquiryFormBuilder() {
 			{showPreview && (
 				<section className="inquiry-preview panel">
 					<div className="panelhead"><div><h2>{name || 'Inquiry Form Preview'}</h2><p>{description || 'Preview of configured form fields.'}</p></div><button type="button" onClick={() => setShowPreview(false)}>Close Preview</button></div>
+					<div className="inquiry-preview-branding">
+						{branding.logoUrl && <img src={branding.logoUrl} alt={`${branding.universityName || 'University'} logo`} />}
+						<div>
+							<strong>{branding.universityName || 'SVIT'}</strong>
+							{branding.address && <span>{branding.address}</span>}
+							{branding.contactNumber && <a href={`tel:${branding.contactNumber.replace(/[^\d+]/g, '')}`}>{branding.contactNumber}</a>}
+						</div>
+						<h2>{branding.heroTitle || 'Your future starts with a conversation.'}</h2>
+						{branding.heroDescription && <p>{branding.heroDescription}</p>}
+					</div>
 					{sections.map((section) => (
 						<div className="inquiry-preview-section" key={section.id}>
 							<h3>{section.title}</h3>

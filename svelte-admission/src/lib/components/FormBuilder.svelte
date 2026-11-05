@@ -166,6 +166,12 @@
             editingSection.rowHeaderLabel = editingSectionRowHeaderLabel;
             editingSection.showSummaryRow = editingSectionShowSummaryRow;
             editingSection.summaryRowLabel = editingSectionSummaryRowLabel;
+            editingSection.tableColumns = editingSection.tableColumns || [];
+            if (editingSectionShowSummaryRow) {
+                editingSection.tableColumns.forEach((column: any) => {
+                    if (column.type !== 'text' && !column.aggregate) column.aggregate = 'sum';
+                });
+            }
         } else {
             delete editingSection.rowHeaderLabel;
             delete editingSection.showSummaryRow;
@@ -209,6 +215,44 @@
         schema.fields = schema.fields.map(f => f.sectionId === id ? { ...f, sectionId: fallbackSectionId } : f);
         
         if (sectionId === id) sectionId = fallbackSectionId;
+        notifyChange();
+    }
+
+    function addTableColumn(section: any) {
+        const columns = section.tableColumns || [];
+        let sequence = columns.length + 1;
+        while (columns.some((column: any) => column.key === `column_${sequence}`)) sequence++;
+
+        section.tableColumns = [...columns, {
+            key: `column_${sequence}`,
+            label: `Column ${sequence}`,
+            type: 'number',
+            ...(section.showSummaryRow ? { aggregate: 'sum' } : {})
+        }];
+        notifyChange();
+    }
+
+    function addSubjectRow(section: any) {
+        let sequence = schema.fields.length + 1;
+        let key = `subject_${sequence}`;
+        while (schema.fields.some(field => field.key === key)) {
+            sequence++;
+            key = `subject_${sequence}`;
+        }
+
+        schema.fields = [...schema.fields, {
+            key,
+            label: `Subject ${sequence}`,
+            type: 'text',
+            col: 12,
+            sectionId: section.id,
+            inDatagrid: true
+        }];
+        notifyChange();
+    }
+
+    function removeSubjectRow(row: any) {
+        schema.fields = schema.fields.filter(field => field.key !== row.key);
         notifyChange();
     }
 
@@ -632,6 +676,7 @@
                     </div>
                     <ul class="list-group list-group-flush">
                         {#each schema.sections || [] as section, sectionIndex}
+                            {@const subjectRows = schema.fields.filter(field => field.sectionId === section.id && field.inDatagrid)}
                             <li class="list-group-item {sectionIndex % 2 === 0 ? 'bg-light' : ''}">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                     <span class="fw-semibold">
@@ -662,7 +707,7 @@
                                 </div>
                                 {#if section.layout === 'table'}
                                     <div class="mt-2">
-                                        <label class="form-label small fw-bold">Columns</label>
+                                        <div class="form-label small fw-bold">Columns</div>
                                         {#each section.tableColumns || [] as col, colIndex}
                                             <div class="border p-2 mb-2 bg-white rounded small">
                                                 <div class="d-flex justify-content-between mb-1">
@@ -698,7 +743,19 @@
                                                 {/if}
                                             </div>
                                         {/each}
-                                        <button type="button" class="btn btn-sm btn-outline-secondary w-100" on:click={() => { section.tableColumns = [...(section.tableColumns || []), { key: '', label: '', type: 'number' }]; notifyChange(); }}><i class="bi bi-plus-lg"></i> Add Column</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary w-100" on:click={() => addTableColumn(section)}><i class="bi bi-plus-lg"></i> Add Column</button>
+                                        <div class="mt-3">
+                                            <div class="form-label small fw-bold">Subject Rows</div>
+                                            {#each subjectRows as row (row.key)}
+                                                <div class="input-group input-group-sm mb-2">
+                                                    <span class="input-group-text">Subject</span>
+                                                    <input class="form-control" bind:value={row.label} on:input={notifyChange} aria-label="Subject row label" />
+                                                    <button type="button" class="btn btn-outline-danger" on:click={() => removeSubjectRow(row)} aria-label="Remove {row.label}" title="Remove subject row"><i class="bi bi-x-lg"></i></button>
+                                                </div>
+                                            {/each}
+                                            <button type="button" class="btn btn-sm btn-outline-primary w-100" on:click={() => addSubjectRow(section)}><i class="bi bi-plus-lg"></i> Add Subject Row</button>
+                                            {#if !subjectRows.length}<small class="text-muted d-block mt-1">Add a row for each subject. The label appears in the first table column.</small>{/if}
+                                        </div>
                                     </div>
                                 {/if}
                             </li>

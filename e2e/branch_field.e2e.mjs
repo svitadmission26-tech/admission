@@ -84,6 +84,17 @@ async function main() {
 		.select()
 		.single();
 	if (courseError) throw new Error(`course: ${courseError.message}`);
+	const { data: otherCourse, error: otherCourseError } = await admin
+		.from('courses')
+		.insert({
+			name: `Branch Field Test Other Course ${stamp}`,
+			code: `BFTO${stamp}`,
+			college_id: college.id,
+			active: true,
+		})
+		.select()
+		.single();
+	if (otherCourseError) throw new Error(`other course: ${otherCourseError.message}`);
 	const { data: branches, error: branchError } = await admin
 		.from('branches')
 		.insert([
@@ -108,10 +119,17 @@ async function main() {
 				college_id: college.id,
 				active: false,
 			},
+			{
+				name: 'Other Course Branch',
+				code: `OTHER${stamp}`,
+				course_id: otherCourse.id,
+				college_id: college.id,
+				active: true,
+			},
 		])
 		.select();
 	if (branchError) throw new Error(`branches: ${branchError.message}`);
-	check('two active branches and one inactive branch exist', branches.length === 3);
+	check('three branches for the selected course and one other-course branch exist', branches.length === 4);
 
 	const { data: form, error: formError } = await admin
 		.from('admission_forms')
@@ -165,6 +183,10 @@ async function main() {
 		'the course brings its branches to the student page',
 		courseBranches.length === 2,
 		String(courseBranches.length),
+	);
+	check(
+		'branches from another course are not offered',
+		!courseBranches.some((branch) => branch.name === 'Other Course Branch'),
 	);
 	const activeBranches = courseBranches.filter((branch) => branch.active !== false);
 	check(
@@ -228,8 +250,8 @@ async function main() {
 
 	console.log('\n--- cleanup ---');
 	await admin.from('admission_forms').delete().eq('college_id', college.id);
-	await admin.from('branches').delete().eq('course_id', course.id);
-	await admin.from('courses').delete().eq('id', course.id);
+	await admin.from('branches').delete().eq('college_id', college.id);
+	await admin.from('courses').delete().eq('college_id', college.id);
 	await admin.from('colleges').delete().eq('id', college.id);
 	console.log('test data removed');
 
