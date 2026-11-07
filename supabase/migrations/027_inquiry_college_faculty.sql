@@ -22,7 +22,21 @@ alter table if exists public.inquiries
 	add column if not exists faculty_id uuid references public.profiles(id) on delete set null;
 
 alter table if exists public.inquiries
-	add column if not exists gender text check (gender in ('male', 'female', 'other')) default '';
+	add column if not exists gender text check (gender in ('male', 'female', 'other', '')) default '';
+
+do $$
+begin
+  if exists (
+    select 1 from pg_constraint
+    where conname = 'inquiries_gender_check'
+      and conrelid = 'public.inquiries'::regclass
+  ) then
+    alter table public.inquiries drop constraint inquiries_gender_check;
+  end if;
+  alter table public.inquiries
+    add constraint inquiries_gender_check
+    check (gender in ('male', 'female', 'other', ''));
+end $$;
 
 alter table if exists public.inquiries
 	add column if not exists timing_slot text default '';
@@ -72,17 +86,10 @@ begin
 	if coalesce(p_website, '') <> '' then
 		raise exception 'Invalid submission';
 	end if;
-	if p_consent is distinct from true then
-		raise exception 'Consent required';
-	end if;
-	if length(trim(coalesce(p_student_name, ''))) not between 2 and 120
-		or coalesce(p_mobile, '') !~ '^[6-9][0-9]{9}$' then
-		raise exception 'Invalid required fields';
-	end if;
-	if length(trim(coalesce(p_course_interest, ''))) not between 2 and 120 then
-		raise exception 'Invalid required fields';
-	end if;
-	if length(coalesce(p_email, '')) > 254
+  if p_consent is distinct from true then
+    raise exception 'Consent required';
+  end if;
+  if length(coalesce(p_email, '')) > 254
 		or (
 			nullif(trim(coalesce(p_email, '')), '') is not null
 			and p_email !~* '^[^ @]+@[^ @]+[.][^ @]+$'
@@ -124,13 +131,15 @@ begin
 		left(nullif(trim(p_city), ''), 120),
 		left(coalesce(nullif(trim(p_source), ''), 'website'), 40),
 		nullif(trim(coalesce(p_message, '')), ''),
-		auth.uid() /* default assignee = current staff if any */,
+		p_consent,
+		auth.uid(),
+		null,
 		now(),
 		now(),
 		case when trim(p_college_id) <> '' then p_college_id::uuid end,
 		coalesce(trim(p_department), ''),
 		case when trim(p_faculty_id) <> '' then p_faculty_id::uuid end,
-		coalesce(trim(p_gender), ''),
+		lower(coalesce(trim(p_gender), '')),
 		case when trim(p_student_id) <> '' then p_student_id::uuid end,
 		case when trim(p_course_id) <> '' then p_course_id::uuid end,
 		case when trim(p_branch_id) <> '' then p_branch_id::uuid end

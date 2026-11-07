@@ -102,11 +102,6 @@ begin
   if p_consent is distinct from true then
     raise exception 'Consent required';
   end if;
-  if length(trim(coalesce(p_student_name, ''))) not between 2 and 120
-    or coalesce(p_mobile, '') !~ '^[6-9][0-9]{9}$'
-    or length(trim(coalesce(p_course_interest, ''))) not between 2 and 120 then
-    raise exception 'Invalid required fields';
-  end if;
   if length(coalesce(p_email, '')) > 254
     or (
       nullif(trim(coalesce(p_email, '')), '') is not null

@@ -18,6 +18,7 @@ const freshField = (sectionId) => ({
 	profileFieldId: '',
 	defaultValue: '',
 	forceUppercase: false,
+	textCase: 'none',
 	copyFromFieldKey: '',
 	visibility: { fieldKey: '', operator: 'equals', value: '' },
 	options: [],
@@ -46,6 +47,7 @@ export const fieldTypes = [
 	'email',
 	'number',
 	'date',
+	'time',
 	'tel',
 	'url',
 	'textarea',
@@ -69,6 +71,7 @@ export const fieldTypeLabels = {
 	email: 'Email',
 	number: 'Number',
 	date: 'Date',
+	time: 'Time',
 	tel: 'Phone',
 	url: 'URL',
 	textarea: 'Textarea',
@@ -80,7 +83,7 @@ export const fieldTypeLabels = {
 	branch: 'Branch Selection',
 	department: 'Department Selection',
 	faculty: 'Faculty / Branch Selection',
-	timing: 'College Timing (Hours)',
+	timing: 'Time (manual entry)',
 	gender: 'Gender',
 	source: 'Source',
 	qualification: 'Qualification',
@@ -271,6 +274,7 @@ export default function InquiryFormBuilder() {
 						required: Boolean(profileField.required),
 						defaultValue: profileField.default_value || '',
 						forceUppercase: profileField.text_case === 'uppercase',
+						textCase: profileField.text_case || 'none',
 						options: Array.isArray(profileField.options) ? profileField.options : [],
 					}
 				: { profileFieldId: '' }),
@@ -279,10 +283,14 @@ export default function InquiryFormBuilder() {
 
 	function saveField(event) {
 		event.preventDefault();
+		const textCase =
+			fieldDraft.textCase || (fieldDraft.forceUppercase ? 'uppercase' : 'none');
 		const field = {
 			...fieldDraft,
 			key: fieldDraft.key.trim(),
 			label: fieldDraft.label.trim(),
+			textCase,
+			forceUppercase: textCase === 'uppercase',
 			options:
 				fieldDraft.type === 'select' || fieldDraft.type === 'radio'
 					? (fieldDraft.options || []).map((option) => option.trim()).filter(Boolean)
@@ -753,9 +761,24 @@ export default function InquiryFormBuilder() {
 						{(fieldDraft.type === 'select' || fieldDraft.type === 'radio') && (
 							<label>Options (one per line)<textarea rows={3} value={(fieldDraft.options || []).join('\n')} onChange={(event) => updateDraft('options', event.target.value.split('\n'))} /></label>
 						)}
+						{['text', 'textarea'].includes(fieldDraft.type) && (
+							<label>Text Case
+								<select
+									value={fieldDraft.textCase || (fieldDraft.forceUppercase ? 'uppercase' : 'none')}
+									onChange={(event) => {
+										updateDraft('textCase', event.target.value);
+										updateDraft('forceUppercase', event.target.value === 'uppercase');
+									}}
+								>
+									<option value="none">As entered</option>
+									<option value="uppercase">UPPERCASE</option>
+									<option value="lowercase">lowercase</option>
+								</select>
+								<small>Entered text is converted automatically.</small>
+							</label>
+						)}
 						<div className="inquiry-field-options">
 							<strong>Copy &amp; Transformation</strong>
-							<label><input type="checkbox" checked={fieldDraft.forceUppercase} onChange={(event) => updateDraft('forceUppercase', event.target.checked)} />Force UPPERCASE</label>
 							<label>Copy from field<select value={fieldDraft.copyFromFieldKey} onChange={(event) => updateDraft('copyFromFieldKey', event.target.value)}><option value="">Disabled</option>{fields.filter((field) => field.key !== fieldDraft.key).map((field) => <option key={field.key} value={field.key}>{field.label}</option>)}</select></label>
 						</div>
 						<div className="inquiry-field-options">

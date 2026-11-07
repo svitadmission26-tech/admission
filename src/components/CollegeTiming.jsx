@@ -2,6 +2,24 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const emptyBreak = { start: '', end: '' };
+const localDate = () => {
+	const now = new Date();
+	return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+const emptyInquirySlot = {
+	college_id: '',
+	slot_date: localDate(),
+	starts_at: '09:00',
+	ends_at: '10:00',
+	active: true,
+};
+const emptyBulkInquirySlots = {
+	college_id: '',
+	date_from: localDate(),
+	date_to: localDate(),
+	starts_at: '09:00',
+	ends_at: '17:00',
+};
 const initial = {
 	college_id: '',
 	department: '',
@@ -16,19 +34,33 @@ const initial = {
 export default function CollegeTiming({ canManage }) {
 	const [colleges, setColleges] = useState([]);
 	const [rows, setRows] = useState([]);
+	const [inquirySlots, setInquirySlots] = useState([]);
 	const [form, setForm] = useState(initial);
+	const [inquirySlotForm, setInquirySlotForm] = useState(emptyInquirySlot);
+	const [bulkSlotsForm, setBulkSlotsForm] = useState(emptyBulkInquirySlots);
+	const [holidayDate, setHolidayDate] = useState('');
+	const [holidayDates, setHolidayDates] = useState([]);
 	const [editing, setEditing] = useState(null);
+	const [editingSlot, setEditingSlot] = useState(null);
 	const [error, setError] = useState('');
+	const [slotMessage, setSlotMessage] = useState('');
 	const [busy, setBusy] = useState(false);
+	const [slotBusy, setSlotBusy] = useState(false);
 
 	async function load() {
-		const [c, r] = await Promise.all([
+		const [c, r, slots] = await Promise.all([
 			supabase.from('colleges').select('id,name').order('name'),
 			supabase.from('college_timings').select('*').order('college_id').order('day_of_week'),
+			supabase
+				.from('inquiry_appointment_slots')
+				.select('*')
+				.order('slot_date')
+				.order('starts_at'),
 		]);
 		setColleges(c.data || []);
 		setRows(r.data || []);
-		setError(c.error?.message || r.error?.message || '');
+		setInquirySlots(slots.data || []);
+		setError(c.error?.message || r.error?.message || slots.error?.message || '');
 	}
 
 	useEffect(() => {
@@ -133,6 +165,128 @@ export default function CollegeTiming({ canManage }) {
 		else await load();
 	}
 
+	async function saveInquirySlot(event) {
+		event.preventDefault();
+		setError('');
+		if (inquirySlotForm.starts_at >= inquirySlotForm.ends_at) {
+			setError('Inquiry slot end time must be after its start time.');
+			return;
+		}
+		setSlotBusy(true);
+		const result = editingSlot
+			? await supabase
+					.from('inquiry_appointment_slots')
+					.update(inquirySlotForm)
+					.eq('id', editingSlot)
+			: await supabase.from('inquiry_appointment_slots').insert(inquirySlotForm);
+		setSlotBusy(false);
+		if (result.error) {
+			setError(result.error.message);
+			return;
+		}
+		setEditingSlot(null);
+		setInquirySlotForm({ ...emptyInquirySlot, slot_date: localDate() });
+		await load();
+	}
+
+	function addHolidayDate() {
+		if (!holidayDate) return;
+		setHolidayDates((current) =>
+			[...new Set([...current, holidayDate])].sort(),
+		);
+		setHolidayDate('');
+	}
+
+	async function createBulkInquirySlots(event) {
+		event.preventDefault();
+		setError('');
+		setSlotMessage('');
+		if (bulkSlotsForm.date_to < bulkSlotsForm.date_from) {
+			setError('The end date must be on or after the start date.');
+			return;
+		}
+		const startMinutes =
+			Number(bulkSlotsForm.starts_at.slice(0, 2)) * 60 +
+			Number(bulkSlotsForm.starts_at.slice(3, 5));
+		const endMinutes =
+			Number(bulkSlotsForm.ends_at.slice(0, 2)) * 60 +
+			Number(bulkSlotsForm.ends_at.slice(3, 5));
+		if (startMinutes >= endMinutes) {
+			setError('The closing time must be after the opening time.');
+			return;
+		}
+		const firstDate = new Date(`${bulkSlotsForm.date_from}T00:00:00Z`);
+		const lastDate = new Date(`${bulkSlotsForm.date_to}T00:00:00Z`);
+		const daysCount = Math.round((lastDate - firstDate) / 86400000) + 1;
+		if (!Number.isFinite(daysCount) || daysCount < 1 || daysCount > 366) {
+			setError('Select a date range of 1 to 366 days.');
+			return;
+		}
+
+		const slots = [];
+		const holidays = new Set(holidayDates);
+		for (let dayOffset = 0; dayOffset < daysCount; dayOffset += 1) {
+			const date = new Date(firstDate);
+			date.setUTCDate(date.getUTCDate() + dayOffset);
+			const slotDate = date.toISOString().slice(0, 10);
+			if (holidays.has(slotDate)) continue;
+			for (
+				let slotStart = startMinutes;
+				slotStart + 60 <= endMinutes;
+				slotStart += 60
+			) {
+				const formatTime = (minutes) =>
+					`${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+				slots.push({
+					college_id: bulkSlotsForm.college_id,
+					slot_date: slotDate,
+					starts_at: formatTime(slotStart),
+					ends_at: formatTime(slotStart + 60),
+					active: true,
+				});
+			}
+		}
+		if (!slots.length) {
+			setError('No one-hour slots can be created for the selected dates and hours.');
+			return;
+		}
+
+		setSlotBusy(true);
+		try {
+			for (let offset = 0; offset < slots.length; offset += 500) {
+				const { error: saveError } = await supabase
+					.from('inquiry_appointment_slots')
+					.upsert(slots.slice(offset, offset + 500), {
+						onConflict: 'college_id,slot_date,starts_at,ends_at',
+						ignoreDuplicates: true,
+					});
+				if (saveError) throw saveError;
+			}
+			const selectedHolidays = holidayDates.filter(
+				(date) =>
+					date >= bulkSlotsForm.date_from && date <= bulkSlotsForm.date_to,
+			).length;
+			setSlotMessage(
+				`${slots.length} one-hour slots processed. Existing slots were left unchanged.${selectedHolidays ? ` ${selectedHolidays} holiday date(s) skipped.` : ''}`,
+			);
+			await load();
+		} catch (saveError) {
+			setError(saveError.message || 'Could not save inquiry slots.');
+		} finally {
+			setSlotBusy(false);
+		}
+	}
+
+	async function removeInquirySlot(id) {
+		if (!window.confirm('Delete this inquiry appointment slot?')) return;
+		const result = await supabase
+			.from('inquiry_appointment_slots')
+			.delete()
+			.eq('id', id);
+		if (result.error) setError(result.error.message);
+		else await load();
+	}
+
 	function breaksLabel(row) {
 		const list = Array.isArray(row.breaks) && row.breaks.length
 			? row.breaks
@@ -209,6 +363,229 @@ export default function CollegeTiming({ canManage }) {
 					{editing && <button type="button" onClick={() => { setEditing(null); setForm(initial); }}>Cancel</button>}
 				</form>
 			)}
+			<hr />
+			<h3>Inquiry appointment slots</h3>
+			<p>Choose the available dates and times that applicants can select on the public inquiry form.</p>
+			{canManage && (
+				<form onSubmit={createBulkInquirySlots} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12, marginBottom: 24 }}>
+					<h4 style={{ gridColumn: '1 / -1', marginBottom: 0 }}>Bulk create 1-hour slots</h4>
+					<label>College
+						<select
+							required
+							value={bulkSlotsForm.college_id}
+							onChange={(event) =>
+								setBulkSlotsForm({ ...bulkSlotsForm, college_id: event.target.value })
+							}
+						>
+							<option value="">Select college</option>
+							{colleges.map((college) => (
+								<option key={college.id} value={college.id}>{college.name}</option>
+							))}
+						</select>
+					</label>
+					<label>From date
+						<input
+							type="date"
+							required
+							min={localDate()}
+							value={bulkSlotsForm.date_from}
+							onChange={(event) =>
+								setBulkSlotsForm({ ...bulkSlotsForm, date_from: event.target.value })
+							}
+						/>
+					</label>
+					<label>To date
+						<input
+							type="date"
+							required
+							min={bulkSlotsForm.date_from || localDate()}
+							value={bulkSlotsForm.date_to}
+							onChange={(event) =>
+								setBulkSlotsForm({ ...bulkSlotsForm, date_to: event.target.value })
+							}
+						/>
+					</label>
+					<label>Opening time
+						<input
+							type="time"
+							required
+							value={bulkSlotsForm.starts_at}
+							onChange={(event) =>
+								setBulkSlotsForm({ ...bulkSlotsForm, starts_at: event.target.value })
+							}
+						/>
+					</label>
+					<label>Closing time
+						<input
+							type="time"
+							required
+							value={bulkSlotsForm.ends_at}
+							onChange={(event) =>
+								setBulkSlotsForm({ ...bulkSlotsForm, ends_at: event.target.value })
+							}
+						/>
+					</label>
+					<div style={{ gridColumn: '1 / -1' }}>
+						<label>Holiday date
+							<div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+								<input
+									type="date"
+									min={bulkSlotsForm.date_from || localDate()}
+									max={bulkSlotsForm.date_to}
+									value={holidayDate}
+									onChange={(event) => setHolidayDate(event.target.value)}
+								/>
+								<button type="button" onClick={addHolidayDate} disabled={!holidayDate}>
+									Add holiday
+								</button>
+							</div>
+						</label>
+						{holidayDates.length > 0 && (
+							<div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+								{holidayDates.map((date) => (
+									<span key={date}>
+										{new Date(`${date}T00:00:00`).toLocaleDateString()}{' '}
+										<button
+											type="button"
+											aria-label={`Remove holiday ${date}`}
+											onClick={() =>
+												setHolidayDates((current) =>
+													current.filter((holiday) => holiday !== date),
+												)
+											}
+										>
+											×
+										</button>
+									</span>
+								))}
+							</div>
+						)}
+					</div>
+					<p style={{ gridColumn: '1 / -1', margin: 0 }}>
+						One-hour slots are generated each day, up to the closing time. Listed holidays are skipped.
+					</p>
+					<button disabled={slotBusy} type="submit">
+						{slotBusy ? 'Creating slots…' : 'Create slots in bulk'}
+					</button>
+				</form>
+			)}
+			{slotMessage && <p role="status">{slotMessage}</p>}
+			{canManage && (
+				<form onSubmit={saveInquirySlot} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12, marginBottom: 24 }}>
+					<label>College
+						<select
+							required
+							value={inquirySlotForm.college_id}
+							onChange={(event) =>
+								setInquirySlotForm({ ...inquirySlotForm, college_id: event.target.value })
+							}
+						>
+							<option value="">Select college</option>
+							{colleges.map((college) => (
+								<option key={college.id} value={college.id}>{college.name}</option>
+							))}
+						</select>
+					</label>
+					<label>Inquiry date
+						<input
+							type="date"
+							required
+							min={localDate()}
+							value={inquirySlotForm.slot_date}
+							onChange={(event) =>
+								setInquirySlotForm({ ...inquirySlotForm, slot_date: event.target.value })
+							}
+						/>
+					</label>
+					<label>From
+						<input
+							type="time"
+							required
+							value={inquirySlotForm.starts_at}
+							onChange={(event) =>
+								setInquirySlotForm({ ...inquirySlotForm, starts_at: event.target.value })
+							}
+						/>
+					</label>
+					<label>To
+						<input
+							type="time"
+							required
+							value={inquirySlotForm.ends_at}
+							onChange={(event) =>
+								setInquirySlotForm({ ...inquirySlotForm, ends_at: event.target.value })
+							}
+						/>
+					</label>
+					<label>
+						<input
+							type="checkbox"
+							checked={inquirySlotForm.active}
+							onChange={(event) =>
+								setInquirySlotForm({ ...inquirySlotForm, active: event.target.checked })
+							}
+						/> Available on inquiry form
+					</label>
+					<button disabled={slotBusy} type="submit">
+						{slotBusy ? 'Saving…' : editingSlot ? 'Update inquiry slot' : 'Add inquiry slot'}
+					</button>
+					{editingSlot && (
+						<button
+							type="button"
+							onClick={() => {
+								setEditingSlot(null);
+								setInquirySlotForm({ ...emptyInquirySlot, slot_date: localDate() });
+							}}
+						>
+							Cancel
+						</button>
+					)}
+				</form>
+			)}
+			<div style={{ overflowX: 'auto', marginBottom: 24 }}>
+				<table>
+					<thead>
+						<tr>
+							<th>College</th>
+							<th>Date</th>
+							<th>Time</th>
+							<th>Status</th>
+							{canManage && <th>Actions</th>}
+						</tr>
+					</thead>
+					<tbody>
+						{inquirySlots.map((slot) => (
+							<tr key={slot.id}>
+								<td>{colleges.find((college) => college.id === slot.college_id)?.name || slot.college_id}</td>
+								<td>{new Date(`${slot.slot_date}T00:00:00`).toLocaleDateString()}</td>
+								<td>{String(slot.starts_at).slice(0, 5)} – {String(slot.ends_at).slice(0, 5)}</td>
+								<td>{slot.active ? 'Available' : 'Hidden'}</td>
+								{canManage && (
+									<td>
+										<button
+											type="button"
+											onClick={() => {
+												setEditingSlot(slot.id);
+												setInquirySlotForm({
+													college_id: slot.college_id,
+													slot_date: slot.slot_date,
+													starts_at: String(slot.starts_at).slice(0, 5),
+													ends_at: String(slot.ends_at).slice(0, 5),
+													active: slot.active,
+												});
+											}}
+										>
+											Edit
+										</button>{' '}
+										<button type="button" onClick={() => void removeInquirySlot(slot.id)}>Delete</button>
+									</td>
+								)}
+							</tr>
+						))}
+					</tbody>
+				</table>
+				{!inquirySlots.length && <p>No inquiry appointment slots configured.</p>}
+			</div>
 			<div style={{ overflowX: 'auto' }}>
 				<table>
 					<thead>

@@ -273,3 +273,111 @@
 		padding: 22px;
 	}
 }
+
+/* ── Faculty picker: department tabs + cards ───────────────────────── */
+.faculty-picker {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.inquiry-field-label {
+	font-size: 0.85rem;
+	font-weight: 600;
+	color: var(--text-secondary, #555);
+}
+.faculty-dept-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+.faculty-dept-tab {
+	padding: 6px 14px;
+	border: 1.5px solid var(--border, #d9e0e8);
+	border-radius: 20px;
+	background: var(--surface, #fff);
+	color: var(--text, #222);
+	cursor: pointer;
+	font-size: 0.82rem;
+	font-weight: 500;
+	transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.faculty-dept-tab:hover {
+	border-color: var(--primary, #2864dc);
+	color: var(--primary, #2864dc);
+}
+.faculty-dept-tab.active {
+	background: var(--primary, #2864dc);
+	border-color: var(--primary, #2864dc);
+	color: #fff;
+}
+.faculty-cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+	gap: 10px;
+}
+.faculty-card {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 3px;
+	padding: 10px 13px;
+	border: 1.5px solid var(--border, #d9e0e8);
+	border-radius: 10px;
+	background: var(--surface, #fff);
+	cursor: pointer;
+	text-align: left;
+	transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.faculty-card:hover {
+	border-color: var(--primary, #2864dc);
+	box-shadow: 0 2px 8px rgba(40,100,220,0.10);
+}
+.faculty-card.selected {
+	border-color: var(--primary, #2864dc);
+	background: #edf3ff;
+	box-shadow: 0 0 0 2px rgba(40,100,220,0.18);
+}
+.faculty-card-name {
+	font-size: 0.88rem;
+	font-weight: 600;
+	color: var(--text, #222);
+}
+.faculty-card-desig {
+	font-size: 0.75rem;
+	color: var(--primary, #2864dc);
+	font-weight: 500;
+}
+.faculty-card-dept {
+	font-size: 0.72rem;
+	color: var(--text-secondary, #777);
+}
+.faculty-empty {
+	font-size: 0.84rem;
+	color: var(--text-secondary, #888);
+	margin: 4px 0;
+}
+@media (max-width: 520px) {
+	.faculty-cards {
+		grid-template-columns: 1fr 1fr;
+	}
+}
+/* ───────────────────────────────────────────────────────────────────── */
+
+/* ── Assign faculty picker (admin inquiry detail panel) ─────────────── */
+.assign-faculty-picker {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin: 8px 0;
+}
+.assign-faculty-label {
+	font-size: 0.84rem;
+	font-weight: 600;
+	color: var(--text-secondary, #555);
+}
+.assign-faculty-cards {
+	max-height: 220px;
+	overflow-y: auto;
+	padding: 2px;
+}
+/* ───────────────────────────────────────────────────────────────────── */

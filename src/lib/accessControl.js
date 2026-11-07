@@ -56,6 +56,7 @@ export const accessPermissions = [
 	['intakes.manage', 'Manage quota intake allocations'],
 	['inquiries.read', 'Read inquiries'],
 	['inquiries.manage', 'Manage inquiries'],
+	['inquiries.feedback.read', 'View faculty inquiry feedback'],
 	['academics.read', 'Read academics'],
 	['academics.manage', 'Manage academics'],
 	['attendance.record', 'Record attendance'],

@@ -44,7 +44,7 @@
             if (typeof inquiryData[key] === 'string' && !key.toLowerCase().includes('email')) {
                 // Find field type to avoid breaking selects/radios
                 const field = fields.find((f: any) => (f.key === key || f.name === key));
-                if (field && (field.type === 'select' || field.type === 'radio' || field.type === 'checkbox')) continue;
+                if (field && (field.type === 'select' || field.type === 'radio' || field.type === 'checkbox' || field.type === 'date')) continue;
 
                 const upper = inquiryData[key].toUpperCase();
                 if (inquiryData[key] !== upper) {

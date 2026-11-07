@@ -4,27 +4,56 @@ import { supabase } from '../supabase';
 import { downloadExcel, downloadExcelTemplate, readExcelRows } from '../lib/excel';
 import './InquiryModule.css';
 
-const initialInquiry = {
-	student_name: '',
-	mobile: '',
-	email: '',
-	course_interest: '',
-	branch_interest: '',
-	qualification: '',
-	academic_result: '',
-	academic_percentage: '',
-	academic_passing_year: '',
-	city: '',
-	source: 'website',
-	message: '',
-	consent: false,
-	website: '',
-	college_id: '',
-	faculty_id: '',
-	branch_id: '',
-	timing_slot: '',
-	gender: '',
-};
+function localDateValue(date = new Date()) {
+	const year = date.getFullYear();
+	const month = String(date.getMonth() + 1).padStart(2, '0');
+	const day = String(date.getDate()).padStart(2, '0');
+	return `${year}-${month}-${day}`;
+}
+
+function formatDisplayDate(value) {
+	if (!value) return '—';
+	const datePart = String(value).slice(0, 10);
+	const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(datePart);
+	if (match) return `${match[3]}-${match[2]}-${match[1]}`;
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return String(value);
+	return `${String(date.getDate()).padStart(2, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${date.getFullYear()}`;
+}
+
+function formatDisplayDateTime(value) {
+	if (!value) return '—';
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return String(value);
+	const hours = String(date.getHours()).padStart(2, '0');
+	const minutes = String(date.getMinutes()).padStart(2, '0');
+	return `${formatDisplayDate(value)} ${hours}:${minutes}`;
+}
+
+function createInitialInquiry() {
+	return {
+		student_name: '',
+		mobile: '',
+		email: '',
+		course_interest: '',
+		branch_interest: '',
+		qualification: '',
+		academic_result: '',
+		academic_percentage: '',
+		academic_passing_year: '',
+		city: '',
+		source: 'website',
+		message: '',
+		consent: false,
+		website: '',
+		college_id: '',
+		faculty_id: '',
+		branch_id: '',
+		inquiry_date: '',
+		timing_slot: '',
+		gender: '',
+	};
+}
 
 const genderOptions = [
 	{ value: '', label: 'Select gender' },
@@ -99,21 +128,9 @@ const getDepartmentOptions = (colleges) => {
 	return [...new Set([...departments, ...uniqueDepts])].sort();
 };
 
-const defaultTimingSlots = (() => {
-	const slots = [];
-	for (let hour = 9; hour <= 17; hour += 1) {
-		const displayHour = hour > 12 ? hour - 12 : hour;
-		const ampm = hour >= 12 ? 'PM' : 'AM';
-		const endHour = hour + 1 > 12 ? hour + 1 - 12 : hour + 1;
-		const endAmpm = hour + 1 >= 12 ? 'PM' : 'AM';
-		slots.push(`${displayHour}:00 ${ampm} - ${endHour}:00 ${endAmpm}`);
-	}
-	return slots;
-})();
-
 function errorText(error) {
 	if (error?.code === 'PGRST202' || error?.code === '42883') {
-		return 'Public inquiry database functions are missing or out of date. Apply migrations 005_inquiries.sql through 007_intake_capacity.sql, then 027_inquiry_college_faculty.sql and 056_inquiry_other_responses.sql through 059_inquiry_response_limits.sql in order.';
+		return 'Public inquiry database functions are missing or out of date. Apply migrations 005_inquiries.sql through 007_intake_capacity.sql, then 027_inquiry_college_faculty.sql and 056_inquiry_other_responses.sql through 069_normalize_nested_mobile_prefixes.sql in order.';
 	}
 	if (error?.code === 'PGRST205' || error?.code === '42P01') {
 		return 'Inquiry tables are missing. Run migrations 005_inquiries.sql through 007_intake_capacity.sql in Supabase in order.';
@@ -139,9 +156,10 @@ const defaultInquiryFields = [
 	{ key: 'academic_passing_year', label: 'Passing Year', type: 'number', sectionId: 'academic', width: 'half', required: true, min: 1950, max: new Date().getFullYear(), step: 1, visibility: { fieldKey: 'academic_result', operator: 'equals', value: 'Pass' } },
 	{ key: 'city', label: 'City', type: 'text', sectionId: 'academic', width: 'half', required: false, placeholder: 'Your city' },
 	{ key: 'college_id', label: 'College', type: 'college', sectionId: 'contact', width: 'half', required: true },
-	{ key: 'faculty_id', label: 'Select branch', type: 'faculty', sectionId: 'contact', width: 'half', required: true },
+	{ key: 'faculty_id', label: 'Select faculty', type: 'faculty', sectionId: 'contact', width: 'half', required: true },
 	{ key: 'contact_number', label: 'Contact number', type: 'tel', sectionId: 'contact', width: 'half', required: false, placeholder: '10-digit contact number' },
-	{ key: 'timing_slot', label: 'Preferred timing (1-hour slot)', type: 'timing', sectionId: 'contact', width: 'half', required: true },
+	{ key: 'inquiry_date', label: 'Inquiry date', type: 'date', sectionId: 'contact', width: 'half', required: true },
+	{ key: 'timing_slot', label: 'Preferred time', type: 'time', sectionId: 'contact', width: 'half', required: true },
 	{ key: 'source', label: 'How did you hear about us?', type: 'source', sectionId: 'contact', width: 'full', required: false },
 	{ key: 'message', label: 'Message / questions', type: 'textarea', sectionId: 'contact', width: 'full', required: false },
 	{ key: 'consent', label: 'I agree to be contacted by the SVIT admission team regarding my inquiry.', type: 'consent', sectionId: 'contact', width: 'full', required: true },
@@ -224,10 +242,55 @@ function isOtherSelection(value, options) {
 	return options.some((option) => isOtherOption(option) && option.value === value);
 }
 
+function isInquiryDateField(field) {
+	if (field.key === 'inquiry_date') return true;
+	const identity = `${field.key ?? ''} ${field.label ?? ''}`.toLowerCase();
+	return (
+		!/(birth|date of birth|\bdob\b)/i.test(identity) &&
+		/(inquiry|appointment|visit).{0,20}date|date.{0,20}(inquiry|appointment|visit)/i.test(
+			identity,
+		)
+	);
+}
+
+function transformFieldText(field, value) {
+	if (typeof value !== 'string') return value;
+	const textCase =
+		field.textCase || (field.forceUppercase ? 'uppercase' : 'none');
+	if (textCase === 'uppercase') return value.toUpperCase();
+	if (textCase === 'lowercase') return value.toLowerCase();
+	return value;
+}
+
+function normalizeIndianMobile(value) {
+	let mobile = String(value ?? '')
+		.replace(/[૦-૯०-९٠-٩۰-۹]/g, (digit) => {
+			const code = digit.codePointAt(0);
+			if (code >= 0x0ae6 && code <= 0x0aef) return String(code - 0x0ae6);
+			if (code >= 0x0966 && code <= 0x096f) return String(code - 0x0966);
+			if (code >= 0x0660 && code <= 0x0669) return String(code - 0x0660);
+			return String(code - 0x06f0);
+		})
+		.replace(/\D/g, '');
+	while (mobile.length > 10) {
+		if (mobile.startsWith('0091')) {
+			mobile = mobile.slice(4);
+		} else if (mobile.startsWith('91')) {
+			mobile = mobile.slice(2);
+		} else if (mobile.startsWith('0')) {
+			mobile = mobile.slice(1);
+		} else {
+			break;
+		}
+	}
+	return mobile;
+}
+
 export function PublicInquiry() {
-	const [form, setForm] = useState(initialInquiry);
+	const [form, setForm] = useState(createInitialInquiry);
 	const [busy, setBusy] = useState(false);
 	const [reference, setReference] = useState('');
+	const [confirmation, setConfirmation] = useState(null);
 	const [error, setError] = useState('');
 	const [courses, setCourses] = useState([]);
 	const [branches, setBranches] = useState([]);
@@ -237,9 +300,9 @@ export function PublicInquiry() {
 	const [inquiryForms, setInquiryForms] = useState([]);
 	const [selectedForm, setSelectedForm] = useState(null);
 	const [catalogError, setCatalogError] = useState('');
-	const [timingOptions, setTimingOptions] = useState([]);
-	const [collegeTimings, setCollegeTimings] = useState([]);
+	const [inquirySlots, setInquirySlots] = useState([]);
 	const [facultyFilter, setFacultyFilter] = useState({ collegeId: '', department: '' });
+	const [facultyDeptTab, setFacultyDeptTab] = useState('');
 	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
@@ -250,7 +313,7 @@ export function PublicInquiry() {
 					collegesRes,
 					departmentsRes,
 					formsRes,
-					timingsRes,
+					inquirySlotsRes,
 				] = await Promise.all([
 					supabase
 						.from('courses')
@@ -265,7 +328,13 @@ export function PublicInquiry() {
 						.eq('is_active', true)
 						.order('created_at', { ascending: false })
 						.limit(1),
-					supabase.from('college_timings').select('*').eq('active', true),
+					supabase
+						.from('inquiry_appointment_slots')
+						.select('id,college_id,slot_date,starts_at,ends_at')
+						.eq('active', true)
+						.gte('slot_date', localDateValue())
+						.order('slot_date')
+						.order('starts_at'),
 				]);
 				if (coursesRes.error) {
 					console.error('Courses:', coursesRes.error);
@@ -281,11 +350,12 @@ export function PublicInquiry() {
 					setInquiryForms(forms);
 					if (forms.length > 0) setSelectedForm(forms[0]);
 				}
-				if (timingsRes.error) console.error('College timings:', timingsRes.error);
-				else {
-					const timings = timingsRes.data ?? [];
-					setCollegeTimings(timings);
-				}
+				if (inquirySlotsRes.error) {
+					console.error('Inquiry appointment slots:', inquirySlotsRes.error);
+					setCatalogError(
+						`Could not load inquiry appointment slots: ${errorText(inquirySlotsRes.error)} Apply migration 060_inquiry_appointment_slots.sql.`,
+					);
+				} else setInquirySlots(inquirySlotsRes.data ?? []);
 			} catch (err) {
 				console.error('Failed to load catalog:', err);
 			} finally {
@@ -298,9 +368,58 @@ export function PublicInquiry() {
 	const configuredSections = selectedForm?.sections && selectedForm.sections.length
 		? selectedForm.sections
 		: defaultInquirySections;
-	const configuredFields = selectedForm?.fields && selectedForm.fields.length
+	const baseConfiguredFields = selectedForm?.fields && selectedForm.fields.length
 		? selectedForm.fields
 		: defaultInquiryFields;
+	const schedulingSectionId =
+		configuredSections.find((section) =>
+			/contact|scheduling/i.test(`${section.id} ${section.title}`),
+		)?.id || configuredSections[0]?.id || 'contact';
+	const validSectionIds = new Set(configuredSections.map((section) => section.id));
+	const normalizedConfiguredFields = baseConfiguredFields.map((field) =>
+		(isInquiryDateField(field) ||
+			field.type === 'date' ||
+			field.key === 'timing_slot' ||
+			field.type === 'time' ||
+			field.type === 'timing') &&
+		!validSectionIds.has(field.sectionId)
+			? { ...field, sectionId: schedulingSectionId }
+			: field,
+	);
+	const configuredFields = [
+		...normalizedConfiguredFields,
+		...(normalizedConfiguredFields.some(
+			isInquiryDateField,
+		)
+			? []
+			: [
+					{
+						key: 'inquiry_date',
+						label: 'Inquiry date',
+						type: 'date',
+						sectionId: schedulingSectionId,
+						width: 'half',
+						required: true,
+					},
+				]),
+		...(normalizedConfiguredFields.some(
+			(field) =>
+				field.key === 'timing_slot' ||
+				field.type === 'timing' ||
+				field.type === 'time',
+		)
+			? []
+			: [
+					{
+						key: 'timing_slot',
+						label: 'Preferred time',
+						type: 'time',
+						sectionId: schedulingSectionId,
+						width: 'half',
+						required: true,
+					},
+				]),
+	];
 	const configuredAcademicSection = configuredSections.find((section) =>
 		/academic|education|qualification/i.test(`${section.id} ${section.title}`),
 	);
@@ -373,6 +492,25 @@ export function PublicInquiry() {
 		? configuredSections
 		: [...configuredSections, academicSection];
 	const effectiveFields = [...configuredFields, ...autoAcademicFields];
+	const mobileField =
+		effectiveFields.find((field) => field.key === 'mobile') ||
+		effectiveFields.find((field) =>
+			/mobile|phone/.test(fieldIdentity(field)),
+		) ||
+		effectiveFields.find((field) => field.type === 'tel') ||
+		effectiveFields.find((field) =>
+			/contact/.test(fieldIdentity(field)),
+		);
+	const preferredTimeField =
+		effectiveFields.find((field) => field.key === 'timing_slot') ||
+		effectiveFields.find(
+			(field) => field.type === 'timing' || field.type === 'time',
+		);
+	const inquiryDateField =
+		effectiveFields.find(isInquiryDateField);
+	const inquiryDateFieldKey = inquiryDateField?.key || 'inquiry_date';
+	const selectedInquiryDate =
+		form[inquiryDateFieldKey] || form.inquiry_date || '';
 	const consentField = effectiveFields.find(
 		(field) => field.type === 'consent' || field.key === 'consent',
 	);
@@ -385,6 +523,27 @@ export function PublicInquiry() {
 		effectiveFields.find((field) => field.type === 'course')?.key ||
 		'course_interest';
 	const selectedCourseId = form[courseFieldKey] || form.course_interest || '';
+	const collegeField = effectiveFields.find((field) => field.type === 'college');
+	const collegeFieldKey = collegeField?.key || 'college_id';
+	const selectedCollegeId = form[collegeFieldKey] || form.college_id || '';
+	const facultyField = effectiveFields.find((field) => field.type === 'faculty');
+	const facultyFieldKey = facultyField?.key || 'faculty_id';
+	const selectedFaculty = faculties.find(
+		(faculty) => faculty.id === form[facultyFieldKey],
+	);
+	const appointmentCollegeId = selectedFaculty?.college_id || selectedCollegeId;
+	const collegeInquirySlots = inquirySlots.filter(
+		(slot) =>
+			slot.slot_date >= localDateValue() &&
+			(!appointmentCollegeId || slot.college_id === appointmentCollegeId),
+	);
+	const inquiryDates = [...new Set(collegeInquirySlots.map((slot) => slot.slot_date))];
+	const selectedDateSlots = collegeInquirySlots.filter(
+		(slot) => slot.slot_date === selectedInquiryDate,
+	);
+	function selectedBranchesFromIds(ids) {
+		return branches.filter((branch) => ids.includes(branch.id));
+	}
 
 	useEffect(() => {
 		let cancelled = false;
@@ -422,12 +581,9 @@ export function PublicInquiry() {
 	useEffect(() => {
 		const loadFaculties = async () => {
 			setFaculties([]);
-			if (!form.college_id) {
-				return;
-			}
 			try {
 				const { data, error } = await supabase.rpc('get_faculties_for_inquiry', {
-					p_college_id: form.college_id,
+					p_college_id: selectedCollegeId || null,
 					p_department: '',
 				});
 				if (error) console.error('Faculties error:', error);
@@ -437,31 +593,7 @@ export function PublicInquiry() {
 			}
 		};
 		void loadFaculties();
-	}, [form.college_id]);
-
-	useEffect(() => {
-		const relevant = form.college_id
-			? collegeTimings.filter((timing) => timing.college_id === form.college_id)
-			: collegeTimings;
-		const slots = [...new Set(
-			relevant
-				.map((timing) => {
-					if (!timing.opens_at || !timing.closes_at) return null;
-					const fmt = (value) => {
-						const text = String(value);
-						const hour = Number(text.slice(0, 2));
-						const minute = text.slice(3, 5);
-						if (Number.isNaN(hour)) return text;
-						const ampm = hour >= 12 ? 'PM' : 'AM';
-						const display = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
-						return `${display}:${minute} ${ampm}`;
-					};
-					return `${fmt(timing.opens_at)} - ${fmt(timing.closes_at)}`;
-				})
-				.filter(Boolean),
-		)];
-		setTimingOptions(slots);
-	}, [form.college_id, collegeTimings]);
+	}, [selectedCollegeId]);
 
 	async function submit(event) {
 		event.preventDefault();
@@ -494,9 +626,47 @@ export function PublicInquiry() {
 			);
 			return;
 		}
+		const name = String(form.student_name ?? '').trim();
+		const mobile = normalizeIndianMobile(
+			form[mobileField?.key ?? 'mobile'],
+		);
+		const courseInterest = String(form.course_interest ?? '').trim();
+		if (name.length < 2 || name.length > 120) {
+			setError('Student name must be between 2 and 120 characters.');
+			return;
+		}
+		if (!/^[6-9]\d{9}$/.test(mobile)) {
+			setError('Enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.');
+			return;
+		}
 		setBusy(true);
 		try {
 			const otherResponses = Object.fromEntries([
+				...effectiveFields
+					.filter(
+						(field) =>
+							(field.type === 'date' || field.key === inquiryDateFieldKey) &&
+							field.key !== inquiryDateFieldKey &&
+							String(form[field.key] ?? '').trim(),
+					)
+					.map((field) => [
+						field.key,
+						{
+							label: field.label || field.key,
+							value: String(form[field.key]).trim(),
+						},
+					]),
+				...(selectedInquiryDate
+					? [
+							[
+								'inquiry_date',
+								{
+									label: inquiryDateField?.label || 'Inquiry date',
+									value: selectedInquiryDate,
+								},
+							],
+						]
+					: []),
 				...effectiveFields
 					.filter((field) =>
 						isOtherSelection(
@@ -550,30 +720,43 @@ export function PublicInquiry() {
 				(course) => course.id === (form[courseField?.key] || form.course_interest),
 			);
 			const branchField = effectiveFields.find((field) => field.type === 'branch');
-			const selectedBranchId =
-				form.branch_id ||
-				branches.find((branch) => branch.id === form[branchField?.key])?.id ||
-				'';
+			const selectedBranchIds = String(form.branch_id ?? '')
+				.split(',')
+				.map((id) => id.trim())
+				.filter(Boolean);
+			const selectedBranches = selectedBranchIds
+				.map((id) => branches.find((branch) => branch.id === id))
+				.filter(Boolean);
+			const selectedBranchId = selectedBranchIds[0] || '';
+			const selectedFacultyId = faculties.some(
+				(faculty) => faculty.id === form[facultyFieldKey],
+			)
+				? form[facultyFieldKey]
+				: '';
 			const args = {
 				p_student_name: form.student_name,
-				p_mobile: form.mobile,
+				p_mobile: mobile,
 				p_email: form.email,
 				p_course_interest: selectedCourse?.name || form.course_interest,
-				p_branch_interest: form.branch_interest,
+				p_branch_interest: selectedBranches
+					.map((branch) => branch.name)
+					.join(', ') || form.branch_interest,
 				p_qualification: form.qualification,
 				p_city: form.city,
 				p_source: form.source,
 				p_message: form.message,
 				p_consent: Boolean(form[consentField?.key ?? 'consent']),
 				p_website: form.website,
-				p_college_id: form.college_id,
-				p_department: form.department || '',
-				p_faculty_id: form.faculty_id,
+				p_college_id: selectedFaculty?.college_id || selectedCollegeId,
+				p_department: faculties.find(
+					(faculty) => faculty.id === selectedFacultyId,
+				)?.department || form.department || '',
+				p_faculty_id: selectedFacultyId,
 				p_gender: form.gender,
 				p_student_id: form.student_id || '',
 				p_course_id: selectedCourse?.id || form.course_id || '',
 				p_branch_id: selectedBranchId,
-				p_timing_slot: form.timing_slot,
+				p_timing_slot: form[preferredTimeField?.key ?? 'timing_slot'] || '',
 				p_other_responses: otherResponses,
 			};
 			const { data, error: submitError } = await supabase.rpc(
@@ -581,8 +764,22 @@ export function PublicInquiry() {
 				args,
 			);
 			if (submitError) throw submitError;
+			const selectedBranchesForConfirm = branches.filter((branch) =>
+				String(form.branch_id ?? '')
+					.split(',')
+					.map((id) => id.trim())
+					.filter(Boolean)
+					.includes(branch.id),
+			);
+			setConfirmation({
+				reference: data,
+				name: form.student_name,
+				date: form[inquiryDateFieldKey] || form.inquiry_date || '',
+				time: form[preferredTimeField?.key ?? 'timing_slot'] || '',
+				branches: selectedBranchesForConfirm.map((b) => b.name),
+			});
 			setReference(data);
-			setForm(initialInquiry);
+			setForm(createInitialInquiry());
 		} catch (submitError) {
 			setError(errorText(submitError));
 		} finally {
@@ -592,7 +789,13 @@ export function PublicInquiry() {
 
 	function setFieldValue(key, value) {
 		setForm((prev) => {
-			const next = { ...prev, [key]: value };
+			const changedField = effectiveFields.find((field) => field.key === key);
+			const next = {
+				...prev,
+				[key]: changedField
+					? transformFieldText(changedField, value)
+					: value,
+			};
 			// Reset dependent selections when their parent changes
 			if (key === courseFieldKey || key === 'course_interest') {
 				next.branch_interest = '';
@@ -604,13 +807,24 @@ export function PublicInquiry() {
 						next[field.key] = '';
 					});
 			}
-			if (key === 'college_id') {
-				next.faculty_id = '';
-				next.timing_slot = '';
+			if (
+				key === 'college_id' ||
+				changedField?.type === 'college' ||
+				changedField?.type === 'faculty'
+			) {
+				effectiveFields
+					.filter((field) => field.type === 'faculty')
+					.forEach((field) => {
+						if (field.key !== key || changedField?.type === 'college') {
+							next[field.key] = '';
+						}
+					});
+				next[inquiryDateFieldKey] = '';
+				next.inquiry_date = '';
+				if (preferredTimeField) next[preferredTimeField.key] = '';
 			}
-			if (key === 'faculty_id') {
-				// Map branch selection to branch_id
-				next.branch_id = value;
+			if (key === inquiryDateFieldKey || key === 'inquiry_date') {
+				if (preferredTimeField) next[preferredTimeField.key] = '';
 			}
 			if (key !== 'gender' && !key.endsWith('_other')) {
 				delete next[`${key}_other`];
@@ -618,7 +832,6 @@ export function PublicInquiry() {
 			if (key === 'gender') {
 				next.student_name = applyTitlePrefix(prev.student_name, value);
 			}
-			const changedField = effectiveFields.find((field) => field.key === key);
 			const normalizedTitleKey = `${changedField?.key ?? ''} ${changedField?.label ?? ''}`
 				.toLowerCase()
 				.replace(/[^a-z]/g, '');
@@ -659,9 +872,7 @@ export function PublicInquiry() {
 			case 'branch':
 				return branches.map((branch) => ({
 					value: branch.id,
-					label: branch.intake
-						? `${branch.name} (intake: ${branch.intake})`
-						: branch.name,
+					label: branch.name,
 				}));
 case 'department': {
 			const options = new Map();
@@ -675,18 +886,14 @@ case 'department': {
 				.map((name) => ({ value: name, label: name }));
 		}
 			case 'faculty':
-				return [...branches]
+				return [...faculties]
 					.sort((a, b) => a.name.localeCompare(b.name))
-					.map((branch) => ({
-						value: branch.id,
-						label: branch.intake
-							? `${branch.name} (intake: ${branch.intake})`
-							: branch.name,
+					.map((faculty) => ({
+						value: faculty.id,
+						label: faculty.department
+							? `${faculty.name} (${faculty.department})`
+							: faculty.name,
 					}));
-			case 'timing': {
-				const slots = timingOptions.length ? timingOptions : defaultTimingSlots;
-				return slots.map((slot) => ({ value: slot, label: slot }));
-			}
 			case 'gender':
 				return genderOptions.map((option) => ({
 					value: option.value,
@@ -725,6 +932,36 @@ case 'department': {
 		);
 		const width = field.width || 'full';
 		const label = field.label || field.key;
+
+		if (field.type === 'college') return null;
+
+		if (field.key === inquiryDateFieldKey) {
+			const noSlotsAvailable = !inquiryDates.length;
+			const dateRequired = required && inquiryDates.length > 0;
+			return (
+				<label className={`inquiry-field width-${width}`} key={field.key}>
+					{label}
+					{dateRequired ? ' *' : ''}
+					<select
+						required={dateRequired}
+						value={value}
+						disabled={noSlotsAvailable}
+						onChange={(event) => setFieldValue(field.key, event.target.value)}
+					>
+						<option value="">
+							{inquiryDates.length
+								? 'Select inquiry date'
+								: 'No inquiry dates available'}
+						</option>
+						{inquiryDates.map((date) => (
+							<option key={date} value={date}>
+								{formatDisplayDate(date)}
+							</option>
+						))}
+					</select>
+				</label>
+			);
+		}
 
 		if (field.type === 'consent') {
 			return (
@@ -819,13 +1056,44 @@ case 'department': {
 			);
 		}
 
+		if (field.key === preferredTimeField?.key || field.type === 'timing') {
+			return (
+				<label className={`inquiry-field width-${width}`} key={field.key}>
+					{label}
+					{required ? ' *' : ''}
+					<select
+						required={required}
+						disabled={!selectedInquiryDate || !selectedDateSlots.length}
+						value={value}
+						onChange={(event) => setFieldValue(field.key, event.target.value)}
+					>
+						<option value="">
+							{!selectedInquiryDate
+								? 'Select a date first'
+								: selectedDateSlots.length
+									? 'Select available time'
+									: 'No times available'}
+						</option>
+						{selectedDateSlots.map((slot) => {
+							const start = String(slot.starts_at).slice(0, 5);
+							const end = String(slot.ends_at).slice(0, 5);
+							return (
+								<option key={slot.id} value={`${start} - ${end}`}>
+									{start} - {end}
+								</option>
+							);
+						})}
+					</select>
+				</label>
+			);
+		}
+
 		const dynamicTypes = [
 			'college',
 			'course',
 			'branch',
 			'department',
 			'faculty',
-			'timing',
 			'gender',
 			'source',
 			'qualification',
@@ -833,6 +1101,164 @@ case 'department': {
 		];
 		if (dynamicTypes.includes(field.type)) {
 			const options = fieldOptionsFor(field);
+
+			// ── Faculty field: department tabs + faculty cards ──────────────────
+			if (field.type === 'faculty') {
+				const deptNames = [...new Set(faculties.map((f) => f.department).filter(Boolean))].sort();
+				const activeDeptTab = facultyDeptTab || (deptNames.length > 0 ? deptNames[0] : '');
+				const filteredFaculties =
+					deptNames.length === 0
+						? faculties
+						: faculties.filter((f) => f.department === activeDeptTab);
+				return (
+					<div className={`inquiry-field width-${width} faculty-picker`} key={field.key}>
+						<span className="inquiry-field-label">
+							{label}
+							{required ? ' *' : ''}
+						</span>
+						{deptNames.length > 0 && (
+							<div className="faculty-dept-tabs">
+								{deptNames.map((dept) => (
+									<button
+										key={dept}
+										type="button"
+										className={`faculty-dept-tab${activeDeptTab === dept ? ' active' : ''}`}
+										onClick={() => {
+											setFacultyDeptTab(dept);
+											// Clear selection if selected faculty not in new dept
+											const current = faculties.find((f) => f.id === form[field.key]);
+											if (current && current.department !== dept) {
+												setFieldValue(field.key, '');
+											}
+										}}
+									>
+										{dept}
+									</button>
+								))}
+							</div>
+						)}
+						{faculties.length === 0 ? (
+							<p className="faculty-empty">No faculty available.</p>
+						) : filteredFaculties.length === 0 ? (
+							<p className="faculty-empty">No faculty in this department.</p>
+						) : (
+							<div className="faculty-cards">
+								{filteredFaculties.map((faculty) => (
+									<button
+										key={faculty.id}
+										type="button"
+										className={`faculty-card${form[field.key] === faculty.id ? ' selected' : ''}`}
+										onClick={() => setFieldValue(field.key, faculty.id)}
+									>
+										<span className="faculty-card-name">{faculty.name}</span>
+										{faculty.designation && (
+											<span className="faculty-card-desig">{faculty.designation}</span>
+										)}
+										{faculty.department && (
+											<span className="faculty-card-dept">{faculty.department}</span>
+										)}
+									</button>
+								))}
+							</div>
+						)}
+						{/* hidden select to carry required validation */}
+						<select
+							required={required}
+							value={form[field.key] ?? ''}
+							onChange={() => {}}
+							tabIndex={-1}
+							aria-hidden="true"
+							style={{ opacity: 0, height: 0, width: 0, position: 'absolute', pointerEvents: 'none' }}
+						>
+							<option value="" />
+							{faculties.map((f) => (
+								<option key={f.id} value={f.id} />
+							))}
+						</select>
+					</div>
+				);
+			}
+			// ── Branch field: preference-wise selection ───────────────────────
+			if (field.type === 'branch') {
+				const branchValue = String(form.branch_id ?? '');
+				const selectedBranchIds = branchValue
+					.split(',')
+					.map((id) => id.trim())
+					.filter(Boolean);
+				const availableBranches = options.filter(
+					(option) => !selectedBranchIds.includes(String(option.value)),
+				);
+				return (
+					<label className={`inquiry-field width-${width}`} key={field.key}>
+						{label}
+						{required ? ' *' : ''}
+						<div className="branch-preference-picker">
+							<select
+								key={selectedBranchIds.length}
+								value=""
+								onChange={(event) => {
+									const val = event.target.value;
+									if (val) {
+										setFieldValue('branch_id', [
+											...selectedBranchIds,
+											val,
+										].join(','));
+									}
+								}}
+							>
+								<option value="">Add branch</option>
+								{availableBranches.map((option) => (
+									<option key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</select>
+							{selectedBranchIds.length > 0 && (
+								<div className="branch-preferences">
+									{selectedBranchIds.map((id, index) => {
+										const option = options.find(
+											(o) => String(o.value) === id,
+										);
+										if (!option) return null;
+										return (
+											<div
+												key={id}
+												className="branch-chip"
+											>
+												<span className="pref-number">
+													{index + 1}.
+												</span>
+												{option.label}
+												<button
+													type="button"
+													onClick={() => {
+														setFieldValue('branch_id',
+															selectedBranchIds
+																.filter((_, i) => i !== index)
+																.join(','));
+													}}
+												>
+													✕
+												</button>
+											</div>
+										);
+									})}
+								</div>
+							)}
+						</div>
+						{selectedBranchIds.length > 0 && (
+							<p className="branch-selected">
+								Preferences:{' '}
+								{selectedBranchesFromIds(selectedBranchIds)
+									.map((b, i) => `${i + 1}. ${b.name}`)
+									.join('; ')}
+							</p>
+						)}
+					</label>
+				);
+			}
+			// ───────────────────────────────────────────────────────────────────
+
 			const isNameField = field.key === 'student_name';
 			if (isNameField) {
 				return (
@@ -901,7 +1327,7 @@ case 'department': {
 			isPercentageField(field) || isPassingYearField(field);
 		const inputType = isAcademicNumberField
 			? 'text'
-			: ['email', 'number', 'date', 'tel', 'url'].includes(field.type)
+			: ['email', 'number', 'date', 'time', 'tel', 'url'].includes(field.type)
 				? field.type
 				: 'text';
 		return (
@@ -911,7 +1337,13 @@ case 'department': {
 				<input
 					type={inputType}
 					required={required}
-					maxLength={field.type === 'tel' ? 10 : 254}
+					maxLength={
+						field.key === mobileField?.key
+							? 20
+							: field.type === 'tel'
+								? 10
+								: 254
+					}
 					min={!isAcademicNumberField ? field.min : undefined}
 					max={!isAcademicNumberField ? field.max : undefined}
 					step={!isAcademicNumberField ? field.step : undefined}
@@ -929,20 +1361,22 @@ case 'department': {
 							? isPassingYearField(field)
 								? '[0-9]{4}'
 								: '[0-9]+(\\.[0-9]+)?'
-							: field.type === 'tel'
+							: field.type === 'tel' && field.key !== mobileField?.key
 								? '[6-9][0-9]{9}'
 								: undefined
 					}
 					value={value}
 					placeholder={field.placeholder || ''}
-					onChange={(event) => setFieldValue(field.key, event.target.value)}
+					onChange={(event) =>
+						setFieldValue(field.key, event.target.value)
+					}
 				/>
 			</label>
 		);
 	}
 
 	function fieldIsVisible(field) {
-		if (field.hidden) return false;
+		if (field.hidden || field.type === 'college') return false;
 		if (isPercentageField(field) || isPassingYearField(field)) {
 			return Boolean(academicPassSelected);
 		}
@@ -1015,8 +1449,27 @@ case 'department': {
 						<h2>Thank you!</h2>
 						<p>Your inquiry has been received. Save this reference number:</p>
 						<strong>{reference}</strong>
+						{confirmation && (
+							<>
+								<p>
+									{confirmation.branches.length > 0
+										? `Branches: ${confirmation.branches.join(', ')}`
+										: 'Branch: —'}
+								</p>
+								<p>
+									{confirmation.date
+										? `Date: ${formatDisplayDate(confirmation.date)}`
+										: 'Date: —'}
+									{confirmation.time ? ` · Time: ${confirmation.time}` : ''}
+								</p>
+								<p>Name: {confirmation.name || '—'}</p>
+							</>
+						)}
 						<p>Our admission team will contact you.</p>
-						<button type="button" onClick={() => setReference('')}>
+						<button type="button" onClick={() => {
+							setReference('');
+							setConfirmation(null);
+						}}>
 							Submit another inquiry
 						</button>
 					</div>
@@ -1077,11 +1530,19 @@ case 'department': {
 	);
 }
 
-export function InquiryDashboard({ canManage = true }) {
+export function InquiryDashboard({
+	canManage = true,
+	canViewFeedback = false,
+	canViewHistory = true,
+	canSubmitFeedback = false,
+}) {
 	const importInput = useRef(null);
 	const [rows, setRows] = useState([]);
 	const [selected, setSelected] = useState(null);
 	const [history, setHistory] = useState([]);
+	const [feedbackEntries, setFeedbackEntries] = useState([]);
+	const [feedbackText, setFeedbackText] = useState('');
+	const [canAddFeedback, setCanAddFeedback] = useState(false);
 	const [filter, setFilter] = useState('all');
 	const [search, setSearch] = useState('');
 	const [colleges, setColleges] = useState([]);
@@ -1100,19 +1561,22 @@ export function InquiryDashboard({ canManage = true }) {
 	const [busy, setBusy] = useState(false);
 	const [message, setMessage] = useState('');
 	const [loading, setLoading] = useState(true);
+	const [assignFacultyDeptTab, setAssignFacultyDeptTab] = useState('');
 
 	useEffect(() => {
 		(async () => {
 			const [collegesRes, studentsRes] = await Promise.all([
 				supabase.from('colleges').select('id, name').order('name'),
-				supabase.from('students').select('id, enrollment, name, course, semester').order('name').limit(500),
+				canManage
+					? supabase.from('students').select('id, enrollment, name, course, semester').order('name').limit(500)
+					: Promise.resolve({ data: [], error: null }),
 			]);
 			if (collegesRes.error) setMessage(errorText(collegesRes.error));
 			else setColleges(collegesRes.data ?? []);
 			if (studentsRes.error) setMessage(errorText(studentsRes.error));
 			else setStudents(studentsRes.data ?? []);
 		})();
-	}, []);
+	}, [canManage]);
 
 	useEffect(() => {
 		const loadFaculty = async () => {
@@ -1138,7 +1602,7 @@ export function InquiryDashboard({ canManage = true }) {
 		try {
 			const { data, error } = await supabase
 				.from('inquiries')
-				.select('*, colleges(name), profiles(name), students(name, enrollment)')
+				.select('*, colleges(name), profiles(name), students(name, enrollment), faculty(name)')
 				.order('created_at', { ascending: false })
 				.limit(500);
 			if (error) {
@@ -1160,24 +1624,79 @@ export function InquiryDashboard({ canManage = true }) {
 	useEffect(() => {
 		let cancelled = false;
 		async function loadHistory() {
+			setHistory([]);
+			setFeedbackEntries([]);
+			setFeedbackText('');
+			setCanAddFeedback(false);
 			if (!selected) {
 				setHistory([]);
 				return;
 			}
-			const { data, error } = await supabase
-				.from('inquiry_followups')
-				.select('*')
-				.eq('inquiry_id', selected.id)
-				.order('created_at', { ascending: false });
-			if (cancelled) return;
-			if (error) setMessage(errorText(error));
-			else setHistory(data ?? []);
+			if (canViewHistory) {
+				const { data, error } = await supabase
+					.from('inquiry_followups')
+					.select('*')
+					.eq('inquiry_id', selected.id)
+					.order('created_at', { ascending: false });
+				if (cancelled) return;
+				if (error) setMessage(errorText(error));
+				else setHistory(data ?? []);
+			}
+			if (canViewFeedback) {
+				const { data, error } = await supabase
+					.from('inquiry_feedback')
+					.select('id,feedback,created_at,profiles:submitted_by(full_name)')
+					.eq('inquiry_id', selected.id)
+					.order('created_at', { ascending: false });
+				if (cancelled) return;
+				if (error) setMessage(errorText(error));
+				else setFeedbackEntries(data ?? []);
+			}
+			if (canSubmitFeedback) {
+				const { data, error } = await supabase.rpc(
+					'can_submit_inquiry_feedback',
+					{ p_inquiry_id: selected.id },
+				);
+				if (cancelled) return;
+				if (error) setMessage(errorText(error));
+				else setCanAddFeedback(Boolean(data));
+			}
 		}
 		void loadHistory();
 		return () => {
 			cancelled = true;
 		};
-	}, [selected]);
+	}, [selected, canViewHistory, canViewFeedback, canSubmitFeedback]);
+
+	async function saveInquiryFeedback(event) {
+		event.preventDefault();
+		if (!selected || !canAddFeedback || busy) return;
+		setBusy(true);
+		setMessage('');
+		try {
+			const { error } = await supabase.rpc('submit_inquiry_feedback', {
+				p_inquiry_id: selected.id,
+				p_feedback: feedbackText,
+			});
+			if (error) throw error;
+			setCanAddFeedback(false);
+			setFeedbackText('');
+			setMessage('Inquiry feedback submitted.');
+			if (canViewFeedback) {
+				const { data, error: feedbackError } = await supabase
+					.from('inquiry_feedback')
+					.select('id,feedback,created_at,profiles:submitted_by(full_name)')
+					.eq('inquiry_id', selected.id)
+					.order('created_at', { ascending: false });
+				if (feedbackError) throw feedbackError;
+				setFeedbackEntries(data ?? []);
+			}
+		} catch (error) {
+			setMessage(errorText(error));
+		} finally {
+			setBusy(false);
+		}
+	}
 
 	async function saveFollowUp(event) {
 		event.preventDefault();
@@ -1185,15 +1704,20 @@ export function InquiryDashboard({ canManage = true }) {
 		setBusy(true);
 		setMessage('');
 		try {
-			// First, update the inquiry with faculty assignment if changed
-			if (note.faculty_id || note.faculty_id === '') {
+			const assignedFaculty = facultyList.find(
+				(faculty) => faculty.id === note.faculty_id,
+			);
+			if (canManage) {
 				const { error: facultyError } = await supabase
 					.from('inquiries')
-					.update({ faculty_id: note.faculty_id === '' ? null : note.faculty_id })
+					.update({
+						assigned_faculty_id: note.faculty_id || null,
+						department:
+							assignedFaculty?.department ?? selected.department ?? '',
+					})
 					.eq('id', selected.id);
 				if (facultyError) throw facultyError;
 			}
-			// Save follow-up
 			const { error } = await supabase.rpc('add_inquiry_followup', {
 				p_inquiry_id: selected.id,
 				p_contact_mode: note.contact_mode,
@@ -1204,6 +1728,21 @@ export function InquiryDashboard({ canManage = true }) {
 				p_status: note.status,
 			});
 			if (error) throw error;
+			if (canManage) {
+				setSelected((current) =>
+					current
+						? {
+								...current,
+								assigned_faculty_id: note.faculty_id || null,
+								department:
+									assignedFaculty?.department ?? current.department ?? '',
+								faculty: assignedFaculty
+									? { name: assignedFaculty.name }
+									: null,
+							}
+						: current,
+				);
+			}
 			setMessage('Follow-up saved.');
 			setNote({
 				contact_mode: 'call',
@@ -1244,7 +1783,8 @@ export function InquiryDashboard({ canManage = true }) {
 					(filterCollege === '' || row.college_id === filterCollege) &&
 					(filterDepartment === '' ||
 						(row.department ?? '') === filterDepartment) &&
-					(filterFaculty === '' || row.faculty_id === filterFaculty),
+					(filterFaculty === '' ||
+						row.assigned_faculty_id === filterFaculty),
 			),
 		[rows, filter, search, filterCollege, filterDepartment, filterFaculty],
 	);
@@ -1274,7 +1814,8 @@ export function InquiryDashboard({ canManage = true }) {
 					{ key: 'college', label: 'College' },
 					{ key: 'department', label: 'Department' },
 					{ key: 'faculty', label: 'Faculty' },
-					{ key: 'timing_slot', label: 'Timing slot' },
+					{ key: 'inquiry_date', label: 'Inquiry date' },
+					{ key: 'timing_slot', label: 'Preferred time' },
 					{ key: 'status', label: 'Status' },
 					{ key: 'next_follow_up_at', label: 'Next follow-up' },
 					{ key: 'created_at', label: 'Created at' },
@@ -1282,6 +1823,8 @@ export function InquiryDashboard({ canManage = true }) {
 				rows: shownRows.map((row) => ({
 					...row,
 					academic_details: formatAcademicResponses(row.other_responses),
+					inquiry_date: row.other_responses?.inquiry_date?.value ?? '',
+					faculty: row.faculty?.name ?? row.profiles?.name ?? '',
 				})),
 			});
 		} catch (error) {
@@ -1326,10 +1869,10 @@ export function InquiryDashboard({ canManage = true }) {
 						`Row ${index + 2}: consent must be Yes/TRUE before importing personal information.`,
 					);
 				}
-				const mobile = String(row.mobile ?? '').trim();
+				const mobile = normalizeIndianMobile(row.mobile);
 				if (!/^[6-9]\d{9}$/.test(mobile))
 					throw new Error(
-						`Row ${index + 2}: mobile must be a 10-digit Indian mobile number.`,
+						`Row ${index + 2}: mobile must be a valid 10-digit Indian number, optionally with +91 or 0 prefix.`,
 					);
 				const studentName = String(row.student_name ?? '').trim();
 				if (studentName.length < 2 || studentName.length > 120)
@@ -1500,7 +2043,8 @@ export function InquiryDashboard({ canManage = true }) {
 									'College',
 									'Department',
 									'Faculty',
-									'Timing',
+									'Inquiry date',
+									'Preferred time',
 									'Status',
 									'Next follow-up',
 									'Action',
@@ -1519,13 +2063,20 @@ export function InquiryDashboard({ canManage = true }) {
 									<td>{row.colleges?.name || '—'}</td>
 									<td>{row.department || '—'}</td>
 									<td>{row.profiles?.name || row.faculty?.name || '—'}</td>
+									<td>
+										{row.other_responses?.inquiry_date?.value
+											? formatDisplayDate(
+													row.other_responses.inquiry_date.value,
+												)
+											: '—'}
+									</td>
 									<td>{row.timing_slot || '—'}</td>
 									<td>
 										<span className="pill">{row.status.replaceAll('_', ' ')}</span>
 									</td>
 									<td>
 										{row.next_follow_up_at
-											? new Date(row.next_follow_up_at).toLocaleString()
+											? formatDisplayDateTime(row.next_follow_up_at)
 											: '—'}
 									</td>
 									<td>
@@ -1534,6 +2085,11 @@ export function InquiryDashboard({ canManage = true }) {
 											onClick={() => {
 												setSelected(row);
 												setMessage('');
+												setFilterCollege(row.college_id || '');
+												setNote((current) => ({
+													...current,
+													faculty_id: row.assigned_faculty_id || '',
+												}));
 											}}
 										>
 											Open
@@ -1591,9 +2147,19 @@ export function InquiryDashboard({ canManage = true }) {
 						<p>
 							<b>Source:</b> {selected.source}
 						</p>
+						{selected.other_responses?.inquiry_date?.value && (
+							<p>
+								<b>Inquiry date:</b>{' '}
+								{formatDisplayDate(
+									selected.other_responses.inquiry_date.value,
+								)}
+							</p>
+						)}
 						{Object.entries(selected.other_responses ?? {}).map(
 							([key, response]) =>
-								response?.value && !isAcademicResponse([key, response]) ? (
+								response?.value &&
+								key !== 'inquiry_date' &&
+								!isAcademicResponse([key, response]) ? (
 									<p key={key}>
 										<b>{response.label || key} (Other):</b> {response.value}
 									</p>
@@ -1606,15 +2172,51 @@ export function InquiryDashboard({ canManage = true }) {
 							<b>Department:</b> {selected.department || '—'}
 						</p>
 						<p>
-							<b>Handling faculty:</b> {selected.profiles?.name || '—'}
+							<b>Handling faculty:</b>{' '}
+							{selected.faculty?.name || selected.profiles?.name || '—'}
 						</p>
 						<p>
-							<b>Preferred timing:</b> {selected.timing_slot || '—'}
+							<b>Preferred time:</b> {selected.timing_slot || '—'}
 						</p>
 						<p>
 							<b>Message:</b> {selected.message || '—'}
 						</p>
 					</div>
+					{canViewFeedback && (
+						<div className="inquiry-feedback">
+							<h3>Faculty feedback</h3>
+							{feedbackEntries.length ? (
+								feedbackEntries.map((entry) => (
+									<div className="inquiry-history" key={entry.id}>
+										<b>{entry.profiles?.full_name || 'Faculty'}</b>
+										<span>{entry.feedback}</span>
+										<small>{new Date(entry.created_at).toLocaleString()}</small>
+									</div>
+								))
+							) : (
+								<p>No faculty feedback has been submitted.</p>
+							)}
+						</div>
+					)}
+					{canAddFeedback && (
+						<form className="editgrid" onSubmit={saveInquiryFeedback}>
+							<h3>Add completed-inquiry feedback</h3>
+							<label>
+								Feedback
+								<textarea
+									required
+									minLength={2}
+									maxLength={2000}
+									rows={4}
+									value={feedbackText}
+									onChange={(event) => setFeedbackText(event.target.value)}
+								/>
+							</label>
+							<button className="primary" disabled={busy}>
+								{busy ? 'Saving...' : 'Submit feedback'}
+							</button>
+						</form>
+					)}
 					{canManage && (
 						<form className="editgrid" onSubmit={saveFollowUp}>
 							<h3>Add follow-up</h3>
@@ -1658,40 +2260,76 @@ export function InquiryDashboard({ canManage = true }) {
 									}
 								/>
 							</label>
-							<label>
-								Assign faculty
-								<select
-									value={note.faculty_id || ''}
-									onChange={(event) =>
-										setNote({ ...note, faculty_id: event.target.value })
-									}
-								>
-									<option value="">Select faculty</option>
-									{canManage && facultyList.length > 0
-										? facultyList.sort((a, b) => a.name.localeCompare(b.name)).map((f) => (
-												<option key={f.id} value={f.id}>
-													{f.name} ({f.designation}) · {f.department}
-												</option>
-											))
-										: []}
-								</select>
-							</label>
+														<div className="assign-faculty-picker">
+								<span className="assign-faculty-label">Assign faculty</span>
+								{(() => {
+									const deptNames = [...new Set(facultyList.map((f) => f.department).filter(Boolean))].sort();
+									const activeTab = assignFacultyDeptTab || (deptNames.length > 0 ? deptNames[0] : '');
+									const filtered = deptNames.length === 0
+										? facultyList
+										: facultyList.filter((f) => f.department === activeTab);
+									return (
+										<>
+											{deptNames.length > 0 && (
+												<div className="faculty-dept-tabs">
+													{deptNames.map((dept) => (
+														<button
+															key={dept}
+															type="button"
+															className={`faculty-dept-tab${activeTab === dept ? ' active' : ''}`}
+															onClick={() => {
+																setAssignFacultyDeptTab(dept);
+																const cur = facultyList.find((f) => f.id === note.faculty_id);
+																if (cur && cur.department !== dept) setNote({ ...note, faculty_id: '' });
+															}}
+														>
+															{dept}
+														</button>
+													))}
+												</div>
+											)}
+											{canManage && facultyList.length > 0 ? (
+												<div className="faculty-cards assign-faculty-cards">
+													{filtered.map((f) => (
+														<button
+															key={f.id}
+															type="button"
+															className={`faculty-card${note.faculty_id === f.id ? ' selected' : ''}`}
+															onClick={() => setNote({ ...note, faculty_id: f.id })}
+														>
+															<span className="faculty-card-name">{f.name}</span>
+															{f.designation && <span className="faculty-card-desig">{f.designation}</span>}
+															{f.department && <span className="faculty-card-dept">{f.department}</span>}
+														</button>
+													))}
+												</div>
+											) : (
+												<p className="faculty-empty">No faculty available.</p>
+											)}
+										</>
+									);
+								})()}
+							</div>
 							<button className="primary" disabled={busy}>
 								{busy ? 'Saving...' : 'Save follow-up'}
 							</button>
 						</form>
 					)}
-					<h3>Follow-up history</h3>
-					{history.length ? (
-						history.map((entry) => (
-							<div className="inquiry-history" key={entry.id}>
-								<b>{entry.contact_mode}</b>
-								<span>{entry.outcome}</span>
-								<small>{new Date(entry.created_at).toLocaleString()}</small>
-							</div>
-						))
-					) : (
-						<p>No follow-ups yet.</p>
+					{canViewHistory && (
+						<>
+							<h3>Follow-up history</h3>
+							{history.length ? (
+								history.map((entry) => (
+									<div className="inquiry-history" key={entry.id}>
+										<b>{entry.contact_mode}</b>
+										<span>{entry.outcome}</span>
+										<small>{new Date(entry.created_at).toLocaleString()}</small>
+									</div>
+								))
+							) : (
+								<p>No follow-ups yet.</p>
+							)}
+						</>
 					)}
 				</section>
 			)}

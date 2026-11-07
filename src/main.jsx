@@ -36,13 +36,8 @@ const PublicInquiry = React.lazy(() =>
 		default: module.PublicInquiry,
 	})),
 );
-const InquiryDashboard = React.lazy(() =>
-	import('./components/InquiryModule').then((module) => ({
-		default: module.InquiryDashboard,
-	})),
-);
-const InquiryAdmissions = React.lazy(
-	() => import('./components/InquiryAdmissions'),
+const InquiryWorkspace = React.lazy(
+	() => import('./components/InquiryWorkspace'),
 );
 const ExcelTableTools = React.lazy(
 	() => import('./components/ExcelTableTools'),
@@ -54,9 +49,6 @@ const ReceiptSequenceManager = React.lazy(
 	() => import('./components/ReceiptSequenceManager'),
 );
 const ReportBuilder = React.lazy(() => import('./components/ReportBuilder'));
-const InquiryFormBuilder = React.lazy(
-	() => import('./components/InquiryFormBuilder'),
-);
 const ChatbotFaqManager = React.lazy(
 	() => import('./components/ChatbotFaqManager'),
 );
@@ -984,6 +976,13 @@ function App() {
 		hasPermission('admissions.read');
 	const canManageInquiries = hasPermission('inquiries.manage');
 	const canReadInquiries =
+		canManageInquiries ||
+		hasPermission('inquiries.read') ||
+		staffRole === 'faculty';
+	const canOpenInquiryWorkspace =
+		canReadInquiries || canReadAdmissions || admin;
+	const canViewInquiryFeedback = hasPermission('inquiries.feedback.read');
+	const canViewInquiryHistory =
 		canManageInquiries || hasPermission('inquiries.read');
 	const canManageAcademics = hasPermission('academics.manage');
 	const canReadAcademics =
@@ -1645,6 +1644,13 @@ function App() {
 		}
 		if (canAccessPage(name)) return true;
 		if (!staffRole) return ['Dashboard', 'My Applications', 'Documents'].includes(name);
+		if (name === 'Inquiries')
+			return (
+				staffRole === 'faculty' ||
+				canReadInquiries ||
+				canReadAdmissions ||
+				admin
+			);
 		if (name === 'Leave Dashboard')
 			return staffRole === 'faculty' || canReadAcademics;
 		if (name === 'Timetable Dashboard') return canReadAcademics;
@@ -2803,7 +2809,11 @@ function App() {
 	const roleNav = admin
 		? modules.filter(([name]) => name !== 'My Applications')
 		: staffRole
-			? modules.filter(([name]) => canAccessPage(name))
+			? modules.filter(
+					([name]) =>
+						canAccessPage(name) ||
+						(name === 'Inquiries' && staffRole === 'faculty'),
+				)
 			: modules.filter(([name]) =>
 					['Dashboard', 'My Applications', 'Documents'].includes(name),
 				);
@@ -2816,9 +2826,16 @@ function App() {
 	});
 	const mergedNav = [];
 	for (const [name, icon] of [...roleNav, ...erpNavEntries]) {
-		if (!mergedNav.some(([existing]) => existing === name)) {
-			mergedNav.push([name, icon]);
+		const navName =
+			name === 'Inquiry Forms' || name === 'Final Admissions'
+				? 'Inquiries'
+				: name;
+		if (!mergedNav.some(([existing]) => existing === navName)) {
+			mergedNav.push([navName, icon]);
 		}
+	}
+	if (admin && !mergedNav.some(([name]) => name === 'Inquiries')) {
+		mergedNav.push(['Inquiries', '\u{1F4DE}']);
 	}
 	// The module workspaces that the signed-in account may open in the
 	// workspace that is open. Every module shows its own title, so the super
@@ -2842,6 +2859,7 @@ function App() {
 					...mergedNav.filter(
 						([name]) =>
 							name === 'Super Admin Dashboard' ||
+							(admin && name === 'Inquiries') ||
 							!erpPageMap.has(name),
 					),
 					['__erp_modules__', 'ERP modules'],
@@ -3139,17 +3157,35 @@ function App() {
 							Export overview Excel
 						</button>
 					</section>
-				) : page === 'Inquiry Forms' && admin ? (
-					<Suspense fallback={<section className="panel">Loading inquiry form builder...</section>}>
-						<InquiryFormBuilder />
+				) : ['Inquiries', 'Inquiry Forms', 'Final Admissions'].includes(page) &&
+				  canOpenInquiryWorkspace ? (
+					<Suspense fallback={<section className="panel">Loading inquiry workspace...</section>}>
+						<InquiryWorkspace
+							key={page}
+							initialTab={
+								page === 'Inquiry Forms'
+									? 'form'
+									: page === 'Final Admissions'
+										? 'admissions'
+										: 'inquiries'
+							}
+							canReadInquiries={canReadInquiries}
+							canManageInquiries={canManageInquiries}
+							canViewFeedback={canViewInquiryFeedback}
+							canViewHistory={canViewInquiryHistory}
+							canSubmitFeedback={staffRole === 'faculty'}
+							canReadAcademics={canReadAcademics}
+							canManageAcademics={canManageAcademics}
+							canReadAdmissions={canReadAdmissions}
+							canPrepareAdmissions={canPrepareAdmissions}
+							canDecideAdmissions={canDecideAdmissions}
+							canManageIntakes={hasPermission('intakes.manage')}
+							admin={admin}
+						/>
 					</Suspense>
 				) : page === 'Chatbot FAQs' && admin ? (
 					<Suspense fallback={<section className="panel">Loading chatbot FAQs...</section>}>
 						<ChatbotFaqManager />
-					</Suspense>
-				) : page === 'Inquiries' && canReadInquiries ? (
-					<Suspense fallback={<section className="panel">Loading inquiries...</section>}>
-						<InquiryDashboard canManage={canManageInquiries} />
 					</Suspense>
 				) : page === 'Documentation' && admin ? (
 					<section className="panel admin-guide">
@@ -3871,14 +3907,6 @@ function App() {
 				) : ['Receipt Sequence Management', 'Receipt Sequences'].includes(page) && admin ? (
 					<Suspense fallback={<section className="panel">Loading receipt sequences...</section>}>
 						<ReceiptSequenceManager />
-					</Suspense>
-				) : page === 'Final Admissions' && canReadAdmissions ? (
-					<Suspense fallback={<section className="panel">Loading admissions...</section>}>
-						<InquiryAdmissions
-							canPrepare={canPrepareAdmissions || canDecideAdmissions}
-							canDecide={canDecideAdmissions}
-							canManageIntakes={hasPermission('intakes.manage')}
-						/>
 					</Suspense>
 				) : page === 'Super Admin Dashboard' ? (
 					<Suspense fallback={<section className="panel">Loading the admin console...</section>}>

@@ -50,7 +50,7 @@ export default function ChatbotFaqManager() {
 			throw new Error(
 				body.trim()
 					? `FAQ API returned invalid JSON (${responseDetail}).`
-					: `FAQ API returned an empty response (${responseDetail}). Check that the server is running the latest API code.`,
+					: `FAQ API returned an empty response (${responseDetail}). Restart or redeploy the Express API with the latest server code, and make sure ${response.url} is routed to it.`,
 			);
 		}
 		if (!response.ok) {
